@@ -469,14 +469,29 @@ function hasEmptyNeighbor(i) {
   return neighbors8(i).some((n) => gemColor[n] === -1);
 }
 
-// 色colorと一致する空きマスを盤面全体からランダムに1つ探す(無ければ-1)
-function findEmptyMatchingCell(color) {
-  const candidates = [];
+// 色colorと一致する空きマスを探す(無ければ-1)。
+// refIdxを指定すると、その位置に最も近い(チェビシェフ距離が最小の)マスを選ぶ。
+// 連鎖で複数のgemをまとめて同じ色のマスへ移動する際、移動先ができるだけ互いに
+// 隣接するようにする(=バラバラに散らばらせず、残る空きマスの塊もなるべく崩さない)ため
+function findEmptyMatchingCell(color, refIdx) {
+  let best = -1;
+  let bestDist = Infinity;
+  let fallbackCount = 0;
+  const refR = refIdx !== undefined ? Math.floor(refIdx / COLS) : 0;
+  const refC = refIdx !== undefined ? refIdx % COLS : 0;
   for (let i = 0; i < SIZE; i++) {
-    if (gemColor[i] === -1 && cellColor[i] === color) candidates.push(i);
+    if (gemColor[i] !== -1 || cellColor[i] !== color) continue;
+    if (refIdx === undefined) {
+      // 基準点指定が無い場合は、これまで通りランダムに1つ選ぶ(リザーバーサンプリング)
+      fallbackCount++;
+      if (randomInt(fallbackCount) === 0) best = i;
+      continue;
+    }
+    const r = Math.floor(i / COLS), c = i % COLS;
+    const dist = Math.max(Math.abs(r - refR), Math.abs(c - refC));
+    if (dist < bestDist) { bestDist = dist; best = i; }
   }
-  if (candidates.length === 0) return -1;
-  return candidates[randomInt(candidates.length)];
+  return best;
 }
 
 // --- 移動処理 ---
@@ -511,7 +526,9 @@ function drainChainWorkList(workList, color) {
     if (hasEmptyNeighbor(to) && hasNeighborColor(from, color)) {
       const chainNeighbors = neighbors8(from).filter((n) => gemColor[n] === color && cellColor[n] !== color);
       for (const n of chainNeighbors) {
-        const target = findEmptyMatchingCell(color);
+        // toの近くを優先して探すことで、連鎖する複数のgemの移動先がなるべく
+        // 隣接するマスにまとまるようにする
+        const target = findEmptyMatchingCell(color, to);
         if (target !== -1) {
           gemColor[target] = CHAIN_RESERVED; // 他の兄弟が同じマスを選ばないよう即座に予約
           workList.push([n, target]);
