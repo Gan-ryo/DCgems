@@ -461,16 +461,13 @@ function updateSelectionHighlight() {
   const el = selected.area === "board" ? boardCellEls[selected.idx] : refugeCellEls[selected.idx];
   el.classList.add("selected");
 
-  if (selected.area === "board") {
-    // 盤面のgemは、自分の色と一致する盤面上の空きマスへ、距離・経路を問わず移動できる
-    const color = gemColor[selected.idx];
+  {
+    // 盤面・退避枠どちらのgemを選んでいても、ハイライトは「自分の色と一致する
+    // 盤面上の空きマス」のみを示す(退避枠のgemは技術的にはどの空きマスへも
+    // 置けるが、実際に意味のある置き先=一致するマスだけを案内する)
+    const color = selected.area === "board" ? gemColor[selected.idx] : refugeGem[selected.idx];
     for (let i = 0; i < SIZE; i++) {
       if (gemColor[i] === -1 && cellColor[i] === color) boardCellEls[i].classList.add("reachable");
-    }
-  } else {
-    // 退避枠のgemは連結判定なしで盤面のどの空きマスへも自由に移動できる
-    for (let i = 0; i < SIZE; i++) {
-      if (gemColor[i] === -1) boardCellEls[i].classList.add("reachable");
     }
   }
 
