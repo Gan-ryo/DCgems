@@ -547,12 +547,24 @@ function renderPaletteLegend() {
     li.style.marginBottom = "6px";
     const swatch = document.createElement("span");
     swatch.style.display = "inline-block";
-    swatch.style.width = "14px";
-    swatch.style.height = "14px";
+    swatch.style.width = "16px";
+    swatch.style.height = "16px";
     swatch.style.borderRadius = "3px";
     swatch.style.background = p.cell;
     swatch.style.boxShadow = "inset 0 0 0 1px rgba(255,255,255,0.3)";
     li.appendChild(swatch);
+
+    const gemSwatch = document.createElement("span");
+    gemSwatch.style.display = "inline-block";
+    gemSwatch.style.width = "16px";
+    gemSwatch.style.height = "16px";
+    gemSwatch.style.borderRadius = "50%";
+    gemSwatch.style.backgroundColor = p.cell;
+    gemSwatch.style.backgroundImage =
+      "radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0) 45%)," +
+      `radial-gradient(circle closest-side, ${p.gem} 0%, ${p.gem} 50%, ${p.gemDark} 78%, rgba(0, 0, 0, 0.55) 90%, transparent 98%)`;
+    li.appendChild(gemSwatch);
+
     li.appendChild(document.createTextNode(p.name));
     ul.appendChild(li);
   });
