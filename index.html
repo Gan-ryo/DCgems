@@ -237,6 +237,9 @@ let refugeGem = new Array(REFUGE_SIZE).fill(null);
 let selected = null; // { area: "board", idx } | { area: "refuge", idx }
 let matchCount = 0;
 let moveCount = 0;
+// 直近の移動で、連鎖させたかったが移動先(盤面の一致マス/退避枠の空き)が無くて
+// 取り残された同色gemのインデックス一覧。移動のたびにリセットされる
+let chainLeftovers = [];
 
 const boardEl = document.getElementById("board");
 const refugeEl = document.getElementById("refuge");
@@ -573,6 +576,8 @@ function drainChainWorkList(workList, color) {
         if (target !== -1) {
           gemColor[target] = CHAIN_RESERVED; // 他の兄弟が同じマスを選ばないよう即座に予約
           workList.push([n, target]);
+        } else {
+          chainLeftovers.push(n); // 移動先が無く取り残された
         }
       }
     }
@@ -607,7 +612,10 @@ function drainChainWorkListToRefuge(workList, color) {
       const chainNeighbors = neighbors8(from).filter((n) => gemColor[n] === color && cellColor[n] !== color);
       for (const n of chainNeighbors) {
         const slot = refugeGem.indexOf(null);
-        if (slot === -1) break; // 退避枠が満杯になったらそこで連鎖は止まる
+        if (slot === -1) {
+          chainLeftovers.push(n); // 退避枠が満杯で取り残された
+          continue;
+        }
         refugeGem[slot] = CHAIN_RESERVED;
         workList.push([n, slot]);
       }
@@ -623,7 +631,10 @@ function maybeTriggerChainToRefuge(originIdx, color) {
   const chainNeighbors = neighbors8(originIdx).filter((n) => gemColor[n] === color && cellColor[n] !== color);
   for (const n of chainNeighbors) {
     const slot = refugeGem.indexOf(null);
-    if (slot === -1) break;
+    if (slot === -1) {
+      chainLeftovers.push(n); // 退避枠が満杯で取り残された
+      continue;
+    }
     refugeGem[slot] = CHAIN_RESERVED;
     workList.push([n, slot]);
   }
@@ -641,10 +652,13 @@ function sortRefuge() {
   for (let i = 0; i < REFUGE_SIZE; i++) paintRefugeCell(i);
 }
 
-// 1手分の後処理(手数カウント・選択解除・ハイライト更新・退避枠ソート・HUD更新・クリア判定)
+// 1手分の後処理(手数カウント・選択解除・ハイライト更新・退避枠ソート・HUD更新・クリア判定)。
+// 連鎖で移動先が無く取り残された同色gemがあれば、その1つを選択したままにして、
+// プレイヤーがすぐ続けて別の移動先を選べるようにする
 function finishMoveBookkeeping() {
   moveCount++;
-  selected = null;
+  const leftover = chainLeftovers.find((idxCandidate) => gemColor[idxCandidate] !== -1);
+  selected = leftover !== undefined ? { area: "board", idx: leftover } : null;
   updateSelectionHighlight();
   sortRefuge();
   updateHud();
@@ -678,6 +692,7 @@ function moveGem(fromArea, fromIdx, toArea, toIdx) {
 function tryMoveTo(area, i) {
   const from = selected;
   const sameAreaBoard = from.area === "board" && area === "board";
+  chainLeftovers = [];
 
   if (!sameAreaBoard) {
     // 退避場所が絡む移動は連結判定なしで自由
