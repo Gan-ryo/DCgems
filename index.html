@@ -72,8 +72,8 @@
   }
   #board {
     display: grid;
-    grid-template-columns: repeat(100, var(--cell-size));
-    grid-template-rows: repeat(100, var(--cell-size));
+    grid-template-columns: repeat(50, var(--cell-size));
+    grid-template-rows: repeat(50, var(--cell-size));
     gap: var(--cell-gap);
   }
   #refuge-wrap {
@@ -121,9 +121,6 @@
     outline: 2px solid #fff;
     outline-offset: -1px;
     z-index: 2;
-  }
-  .cell.reachable {
-    box-shadow: inset 0 0 0 2px rgba(80, 230, 160, 0.9);
   }
   .cell.match-flag::after {
     content: "";
@@ -205,12 +202,12 @@
   <div id="win-banner"><div>🎉 クリア! 🎉<br><span id="win-moves"></span></div></div>
 
 <script>
-const ROWS = 100;
-const COLS = 100;
+const ROWS = 50;
+const COLS = 50;
 const SIZE = ROWS * COLS;
 const REFUGE_SIZE = 50;
 
-// DCロゴ(青地に白抜き)をベースにした、青系統+白/クリーム系統のパレット
+// DCロゴ(青地に白抜き、外周は黒枠)をベースにした、青系統+白/クリーム系統+ブラックのパレット
 const PALETTE = [
   { name: "ディープブルー", cell: "#0b3c8c", gem: "#2f6fe0", gemDark: "#06245c" },
   { name: "ロイヤルブルー", cell: "#1e66c2", gem: "#4f95ea", gemDark: "#114a94" },
@@ -218,8 +215,10 @@ const PALETTE = [
   { name: "ホワイト",       cell: "#ffffff", gem: "#ffffff", gemDark: "#aab1bc" },
   { name: "クリーム",       cell: "#efc868", gem: "#fbe6a6", gemDark: "#c6963a" },
   { name: "ペールミント",   cell: "#7fd4ba", gem: "#bdeeda", gemDark: "#3f9c80" },
+  { name: "ブラック",       cell: "#050505", gem: "#4a4a4a", gemDark: "#1a1a1a" },
 ];
 const COLORS = PALETTE.length;
+const BLACK_COLOR = 6; // 盤面いちばん外側の枠に使う色のインデックス
 
 let cellColor = new Int8Array(SIZE);   // マス自体の色(固定、ゲーム開始時のみ決定)
 let gemColor = new Int8Array(SIZE).fill(-1); // そのマスに乗っているgemの色(-1=空き)
@@ -242,10 +241,10 @@ function idx(r, c) { return r * COLS + c; }
 
 function randomInt(n) { return Math.floor(Math.random() * n); }
 
-// DCロゴ実画像(1254x1254)を100x100にダウンサンプリングして得た「青/背景」の2値マスク。
+// DCロゴ実画像(1254x1254)を50x50にダウンサンプリングして得た「青/背景」の2値マスク。
 // 各セルに対応する元画像領域の平均色を調べ、青が支配的なら1、それ以外(白・クリーム・背景)なら0にしてある。
-// 10000マス分のビットを1250バイトにパックしてbase64化したもの(ビットは下位から: bit (idx%8) of byte (idx>>3))
-const DC_LOGO_MASK_B64 = "AAAAAAAAAAAAAAAAAAAAAADg/38AAAAAAAAAAADg//9/AAAAAAAAAADA////fwAAAAAAAACA/////x8AAAAAAAAA/v8B8P8HAAAAAAAA+H8AAOD/AQAAAAAA4P8AAADwfwAAAAAAAP8BAAAA+B8AAAAAAPwHAAAAAP4DAAAAAOAfAAAAAIB/AAAAAIB/AAAAAADgHwAAAAD8AQAAAAAA/AMAAADgDwAAAAAAAH8AAAAAfwAAAAAAAOAPAAAA+AEAAAAAAAD8AQAAwA8AAAAAAACAPwAAAH4AAAAAAAAA4AcAAPADAAAAAAAAAPwAAIAfAAAAAAAAAIAfAAD4AAAAAAAAAAD4AQDADwAAAAAAAAAAPwAAfgAAAAAAAAAA4AcA4AMAAAAAAAAAAHwAAP////8BAOD/g/8PAPj///8/AID/f/z/AYD/////DwD8/9//HwD8/////wHg/////wPA/////z+A/////z8A/v////8P/P////8H4P//////4f////9/AP7/////H///////B/D///////H/////+wD//////x//////nw/w/v/////x//////mBz/////8f/////x8f+Pj/AP7/8f8A+P/xgQf/P8D/H/8fgP8PH3zw/wf4//H/B/j/4MMH/3+A/x//f4D/Dz588P8H+P/x/wf4/+DDB/9/gP8f/3+A/w8+PPD/B/j/8f8H+H/AwwP/f4D/H/9/gP8HfDzw/wf4//H/BwAAwMcD/3+A/x//fwAAAHw88P8H+P/x/wcAAMDHA/9/gP8f/38AAAB8PPD/B/j/8f8HAADAxwP/f4D/H/9/AAAAfDzw/wf4//H/BwAAwMcD/3+A/x//fwAAAHw88P8H+P/x/wcAAMDHA/9/gP8f/38AAAB8PPD/B/j/8f8HAADAxwP/f4D/H/9/AAAAPDzw/wf4//H/BwAAwMMH/3+A/x//f4D/Dz588P8H+P/x/wf4/+DDB/9/gP8f/3+A/w8+ePD/B/j/8f8H+P/ggQ//f4D/H/9/gP8PH/jw/wf8//H/B/j/8IEP/3/g/x///4D/Dx/w8f/////x//////gAH/////8f/////48P8PH/////8f////98AD7/////H//////PB+Dz//////H/////fgB8/////x//////7wPA///////g/////z8A+P////8H/P////8BgP////8/AP////8fAPD/////AOD/////AAD/////BwD8////DwDg////PwAA////fwAA/P///wAA4P///wMAwA8AAAAAAAAAgD8AAPgBAAAAAAAAAPgBAAA/AAAAAAAAAMAPAADwBwAAAAAAAAB+AAAA/gAAAAAAAADwAwAAwB8AAAAAAACAHwAAAPgHAAAAAAAA/gAAAAD/AAAAAAAA8AcAAADgHwAAAAAAgD8AAAAA+AcAAAAAAP4BAAAAAP8BAAAAAPgPAAAAAOB/AAAAAOB/AAAAAAD4HwAAAID/AQAAAAAA/w8AAAD/DwAAAAAAwP8HAAD+PwAAAAAAAPD/H4D//wAAAAAAAAD8/////wMAAAAAAAAA/////w8AAAAAAAAAgP///x8AAAAAAAAAAMD//x8AAAAAAAAAAAAA/w8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+// 2500マス分のビットを313バイトにパックしてbase64化したもの(ビットは下位から: bit (idx%8) of byte (idx>>3))
+const DC_LOGO_MASK_B64 = "AADgHwAAAAD4/wcAAAD8//8AAAD4AeAHAAD4AAB8AADwAADAAwDwAQAAPgDgAQAA4AHAAwAAAA8ABwAAADgADgAAAMABHAAAAAAP8P8fwL8/4P//wP//gf//j///B///f///P/z///3//7j///f/f+f88d8f/pzzj39/+HPOP/79488Z//j3jz9m/OPfPwCY8Y9//wBgxj/+/QOAGf/49w8AZvzj3z8AmPGPf/8AYMY//v3Djzn/+PePP+f8498//pzzj3//+HPc///9/+9w///3/7/D///f//8H/v8//v8f+P9/8P8/wP9/gP//AP7/APj/AXgAAACAA8ADAAAADwAeAAAAHgDwAQAAPgCADwAAfAAA+AAAfAAAwB8A/gAAAPz//wAAAMD//wAAAAD4PwAAAAAAAAAAAA==";
 
 function decodeDcLogoMask(b64) {
   const bin = atob(b64);
@@ -261,11 +260,19 @@ function isInsideDCLogo(i) {
 }
 
 // マスの色を、実画像から得たDCロゴの形に沿って「青系統」か「白/クリーム系統」かを決め、
-// その中でセルごとにランダムな色味(地域の色むら)を与える
+// その中でセルごとにランダムな色味(地域の色むら)を与える。
+// 盤面いちばん外側の枠(最外周の1マス分)は、ロゴ実画像の黒枠に合わせてブラック固定とする
 function generateCellColors() {
   for (let i = 0; i < SIZE; i++) {
     const isBlue = isInsideDCLogo(i);
     cellColor[i] = isBlue ? randomInt(3) : 3 + randomInt(3);
+  }
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1) {
+        cellColor[idx(r, c)] = BLACK_COLOR;
+      }
+    }
   }
 }
 
