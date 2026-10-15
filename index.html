@@ -230,15 +230,6 @@ const PALETTE = [
 const COLORS = PALETTE.length;
 const BLACK_COLOR = 6; // 盤面いちばん外側の枠に使う色のインデックス
 
-// 色の「系統」グループ(青系統 / 白・クリーム・ミント系統 / ブラック単独)
-const COLOR_FAMILIES = [
-  [0, 1, 2],
-  [3, 4, 5],
-  [6],
-];
-const FAMILY_OF_COLOR = new Array(COLORS);
-COLOR_FAMILIES.forEach((fam, famIdx) => fam.forEach((c) => { FAMILY_OF_COLOR[c] = famIdx; }));
-
 let cellColor = new Int8Array(SIZE);   // マス自体の色(固定、ゲーム開始時のみ決定)
 let gemColor = new Int8Array(SIZE).fill(-1); // そのマスに乗っているgemの色(-1=空き)
 let refugeGem = new Array(REFUGE_SIZE).fill(null);
@@ -298,32 +289,32 @@ function generateCellColors() {
   }
 }
 
-// 各マスのgem色は、自分のマス色とは異なる前提のもと、できるだけ隣接マス(8方向)の
-// マス色の中から選ぶ(=隣に「その色のgemが欲しいマス」がある状態を作り、初期配置から
-// 近距離で正しい色に合わせられるようにする)。隣接マスが全て自分と同じ色の場合のみ、
-// 通常のランダム選択にフォールバックする
-// 「マスの色と同系統の色のgem」の配置率が50%を明確に下回るように調整する。
-// これが高いと、最初の盤面の色の濃淡だけで完成形(DCロゴのシルエット)が
-// 序盤から想像できてしまい、クリア時の「浮かび上がる」感動が薄れてしまうため。
-const SAME_FAMILY_GEM_PROB = 0.35;
-
+// 盤面を左上から読む順番(行方向の走査順、idx()と同じ並び)で、色番号の小さい順に
+// gemをブロック状に敷き詰める(色0のgemが並び、続いて色1のgem…という配置)。
+// マス色の構成比(colorCounts)をそのままgemの構成比として使うため、全マスのgem色と
+// マス色の多重集合が一致し、理論上「必ず揃えられる」状態になる
+// (色の構成比がズレているとパズルとして解けない状態になり得るため、この性質は重要)
 function generateGems() {
-  for (let i = 0; i < SIZE; i++) {
-    const own = cellColor[i];
-    const ownFamily = FAMILY_OF_COLOR[own];
-    const sameFamilyPool = COLOR_FAMILIES[ownFamily].filter((c) => c !== own);
-    const wantSameFamily = sameFamilyPool.length > 0 && Math.random() < SAME_FAMILY_GEM_PROB;
+  const sorted = Array.from(cellColor).sort((a, b) => a - b);
+  for (let i = 0; i < SIZE; i++) gemColor[i] = sorted[i];
 
-    let color;
-    if (wantSameFamily) {
-      color = sameFamilyPool[randomInt(sameFamilyPool.length)];
-    } else {
-      const otherFamilyPool = [];
-      COLOR_FAMILIES.forEach((fam, famIdx) => { if (famIdx !== ownFamily) otherFamilyPool.push(...fam); });
-      color = otherFamilyPool[randomInt(otherFamilyPool.length)];
+  // マス自身の色と一致してしまったマスは、別のマスと入れ替えて解消する
+  // (入れ替え先は、入れ替えても両方のマスで不一致を保てる相手を探す)
+  for (let i = 0; i < SIZE; i++) {
+    if (gemColor[i] !== cellColor[i]) continue;
+    let swapped = false;
+    for (let step = 1; step < SIZE && !swapped; step++) {
+      const j = (i + step) % SIZE;
+      if (j === i) continue;
+      if (gemColor[j] === cellColor[i]) continue; // 入れ替えてもiがまだ一致してしまう
+      if (gemColor[i] === cellColor[j]) continue; // 入れ替えるとjが新たに一致してしまう
+      const tmp = gemColor[i];
+      gemColor[i] = gemColor[j];
+      gemColor[j] = tmp;
+      swapped = true;
     }
-    gemColor[i] = color;
   }
+
   for (let i = 0; i < REFUGE_SIZE; i++) refugeGem[i] = null;
 }
 
