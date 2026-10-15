@@ -701,6 +701,28 @@ function finishMoveBookkeeping() {
 }
 
 // 退避場所が絡む移動(盤面⇔退避場所)。連結判定・色の一致いずれも問わず常に自由
+// 退避枠に残っている同色gemを、1つずつ盤面の一致マスへ連鎖的に移動する。
+// (直前に手動で置いたマスの近くを優先することで、まとまって置かれるようにする)
+// 一致するマスが無くなった時点で終了し、残りはそのまま退避枠に留まる
+function runRefugeToBoardChain(color, nearIdx, onComplete) {
+  function step() {
+    const refIdx = refugeGem.findIndex((g) => g === color);
+    if (refIdx === -1) { onComplete(); return; }
+    const target = findEmptyMatchingCell(color, nearIdx);
+    if (target === -1) { onComplete(); return; }
+
+    refugeGem[refIdx] = null;
+    paintRefugeCell(refIdx);
+    gemColor[target] = color;
+    applyMatchDelta("board", target, 1);
+    paintBoardCell(target);
+    updateHud();
+    setTimeout(step, CHAIN_STEP_DELAY_MS);
+  }
+  if (!refugeGem.includes(color)) { onComplete(); return; } // 退避枠に同色gemが無ければ待たずに即終了
+  setTimeout(step, CHAIN_STEP_DELAY_MS);
+}
+
 function moveGem(fromArea, fromIdx, toArea, toIdx) {
   const color = fromArea === "board" ? gemColor[fromIdx] : refugeGem[fromIdx];
 
@@ -715,6 +737,10 @@ function moveGem(fromArea, fromIdx, toArea, toIdx) {
   // 退避枠に空きがある限り次々と、1つずつアニメーションしながら移動する
   if (fromArea === "board" && toArea === "refuge") {
     runRefugeChain(fromIdx, color, finishMoveBookkeeping);
+  } else if (fromArea === "refuge" && toArea === "board") {
+    // 退避枠→盤面の移動でも、退避枠に残っている同色gemを
+    // 1つずつ盤面の一致マスへまとめて移動する
+    runRefugeToBoardChain(color, toIdx, finishMoveBookkeeping);
   } else {
     finishMoveBookkeeping();
   }
