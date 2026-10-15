@@ -226,6 +226,15 @@ const PALETTE = [
 const COLORS = PALETTE.length;
 const BLACK_COLOR = 6; // 盤面いちばん外側の枠に使う色のインデックス
 
+// 色の「系統」グループ(青系統 / 白・クリーム・ミント系統 / ブラック単独)
+const COLOR_FAMILIES = [
+  [0, 1, 2],
+  [3, 4, 5],
+  [6],
+];
+const FAMILY_OF_COLOR = new Array(COLORS);
+COLOR_FAMILIES.forEach((fam, famIdx) => fam.forEach((c) => { FAMILY_OF_COLOR[c] = famIdx; }));
+
 let cellColor = new Int8Array(SIZE);   // マス自体の色(固定、ゲーム開始時のみ決定)
 let gemColor = new Int8Array(SIZE).fill(-1); // そのマスに乗っているgemの色(-1=空き)
 let refugeGem = new Array(REFUGE_SIZE).fill(null);
@@ -289,25 +298,25 @@ function generateCellColors() {
 // マス色の中から選ぶ(=隣に「その色のgemが欲しいマス」がある状態を作り、初期配置から
 // 近距離で正しい色に合わせられるようにする)。隣接マスが全て自分と同じ色の場合のみ、
 // 通常のランダム選択にフォールバックする
+// 「マスの色と同系統の色のgem」の配置率が50%を明確に下回るように調整する。
+// これが高いと、最初の盤面の色の濃淡だけで完成形(DCロゴのシルエット)が
+// 序盤から想像できてしまい、クリア時の「浮かび上がる」感動が薄れてしまうため。
+const SAME_FAMILY_GEM_PROB = 0.35;
+
 function generateGems() {
   for (let i = 0; i < SIZE; i++) {
     const own = cellColor[i];
-    const r = Math.floor(i / COLS), c = i % COLS;
-    const neighborColors = [];
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        if (dr === 0 && dc === 0) continue;
-        const nr = r + dr, nc = c + dc;
-        if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
-        const neighborOwn = cellColor[idx(nr, nc)];
-        if (neighborOwn !== own) neighborColors.push(neighborOwn);
-      }
-    }
+    const ownFamily = FAMILY_OF_COLOR[own];
+    const sameFamilyPool = COLOR_FAMILIES[ownFamily].filter((c) => c !== own);
+    const wantSameFamily = sameFamilyPool.length > 0 && Math.random() < SAME_FAMILY_GEM_PROB;
+
     let color;
-    if (neighborColors.length > 0) {
-      color = neighborColors[randomInt(neighborColors.length)];
+    if (wantSameFamily) {
+      color = sameFamilyPool[randomInt(sameFamilyPool.length)];
     } else {
-      do { color = randomInt(COLORS); } while (color === own);
+      const otherFamilyPool = [];
+      COLOR_FAMILIES.forEach((fam, famIdx) => { if (famIdx !== ownFamily) otherFamilyPool.push(...fam); });
+      color = otherFamilyPool[randomInt(otherFamilyPool.length)];
     }
     gemColor[i] = color;
   }
