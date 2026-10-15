@@ -412,6 +412,40 @@ function applyMatchDelta(area, i, delta) {
   if (gemColor[i] !== -1 && gemColor[i] === cellColor[i]) matchCount += delta;
 }
 
+// 手動で移動したgemと同じ色でつながっている(フラッドフィルで到達できる)他のgemのうち、
+// 自分のマス色とまだ一致していないものを、同じ連結範囲内にある「色が一致する空きマス」へ
+// 自動で詰めていく。空きマスが無くなる(またはそのgemが無くなる)まで繰り返す。
+// 退避枠は連結判定を問わず常に受け入れ可能(=どの色でも「同色」とみなす)なので、
+// 盤面側の一致する空きマスを使い切った後は、退避枠に空きがある限りそちらへも詰めていく
+function autoCascadeColor(color, boardAnchorIdx) {
+  const region = floodFillReachable(boardAnchorIdx, color);
+  const sources = [];
+  const boardTargets = [];
+  for (let i = 0; i < SIZE; i++) {
+    if (!region[i]) continue;
+    if (gemColor[i] === color && cellColor[i] !== color) sources.push(i);
+    else if (gemColor[i] === -1 && cellColor[i] === color) boardTargets.push(i);
+  }
+  while (sources.length > 0 && boardTargets.length > 0) {
+    const s = sources.pop();
+    const t = boardTargets.pop();
+    gemColor[s] = -1;
+    paintBoardCell(s);
+    gemColor[t] = color;
+    applyMatchDelta("board", t, 1);
+    paintBoardCell(t);
+  }
+  while (sources.length > 0) {
+    const refugeSlot = refugeGem.indexOf(null);
+    if (refugeSlot === -1) break;
+    const s = sources.pop();
+    gemColor[s] = -1;
+    paintBoardCell(s);
+    refugeGem[refugeSlot] = color;
+    paintRefugeCell(refugeSlot);
+  }
+}
+
 function moveGem(fromArea, fromIdx, toArea, toIdx) {
   const color = fromArea === "board" ? gemColor[fromIdx] : refugeGem[fromIdx];
 
@@ -424,6 +458,10 @@ function moveGem(fromArea, fromIdx, toArea, toIdx) {
   moveCount++;
   selected = null;
   updateSelectionHighlight();
+
+  const boardAnchor = toArea === "board" ? toIdx : (fromArea === "board" ? fromIdx : null);
+  if (boardAnchor !== null) autoCascadeColor(color, boardAnchor);
+
   updateHud();
 
   if (matchCount === SIZE) {
