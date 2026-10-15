@@ -122,6 +122,9 @@
     outline-offset: -1px;
     z-index: 2;
   }
+  .cell.reachable {
+    box-shadow: inset 0 0 0 2px rgba(80, 230, 160, 0.9);
+  }
   .cell.match-flag::after {
     content: "";
     position: absolute;
@@ -266,11 +269,30 @@ function generateCellColors() {
   }
 }
 
+// 各マスのgem色は、自分のマス色とは異なる前提のもと、できるだけ隣接マス(8方向)の
+// マス色の中から選ぶ(=隣に「その色のgemが欲しいマス」がある状態を作り、初期配置から
+// 近距離で正しい色に合わせられるようにする)。隣接マスが全て自分と同じ色の場合のみ、
+// 通常のランダム選択にフォールバックする
 function generateGems() {
   for (let i = 0; i < SIZE; i++) {
     const own = cellColor[i];
+    const r = Math.floor(i / COLS), c = i % COLS;
+    const neighborColors = [];
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        const nr = r + dr, nc = c + dc;
+        if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+        const neighborOwn = cellColor[idx(nr, nc)];
+        if (neighborOwn !== own) neighborColors.push(neighborOwn);
+      }
+    }
     let color;
-    do { color = randomInt(COLORS); } while (color === own);
+    if (neighborColors.length > 0) {
+      color = neighborColors[randomInt(neighborColors.length)];
+    } else {
+      do { color = randomInt(COLORS); } while (color === own);
+    }
     gemColor[i] = color;
   }
   for (let i = 0; i < REFUGE_SIZE; i++) refugeGem[i] = null;
@@ -423,6 +445,10 @@ function autoCascadeColor(color, boardAnchorIdx) {
   const boardTargets = [];
   for (let i = 0; i < SIZE; i++) {
     if (!region[i]) continue;
+    // 今回手動で移動した本人(anchor)は、自動カスケードの「移動対象」からは除外する。
+    // 除外しないと、一致する空きマスが無い場合に自分自身が即座に退避枠へ送り返されてしまい、
+    // 手動移動が実質的に取り消されたように見える不具合になる
+    if (i === boardAnchorIdx) continue;
     if (gemColor[i] === color && cellColor[i] !== color) sources.push(i);
     else if (gemColor[i] === -1 && cellColor[i] === color) boardTargets.push(i);
   }
