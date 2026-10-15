@@ -215,7 +215,7 @@
 const ROWS = 50;
 const COLS = 50;
 const SIZE = ROWS * COLS;
-const REFUGE_SIZE = 50;
+const REFUGE_SIZE = 200;
 
 // DCロゴ(青地に白抜き、外周は黒枠)をベースにした、青系統+白/クリーム系統+ブラックのパレット
 const PALETTE = [
@@ -546,18 +546,36 @@ function applyMatchDelta(area, i, delta) {
 }
 
 // 連鎖移動の処理はすべてこのワークリスト(配列を使ったスタック)経由で行う。
-// 深い連鎖が再帰呼び出しでスタックオーバーフローしないようにするためと、
 // 「移動先セルを見つけた時点で即座に予約する」ことで、複数の兄弟が同じ
-// 空きマスを二重に取り合ってgemが消失するのを防ぐための、2つの目的がある
+// 空きマスを二重に取り合ってgemが消失するのを防いでいる。
+// さらに、複数のgemが連鎖する場合は瞬時に全部まとめてではなく、1つずつ
+// 順番に(CHAIN_STEP_DELAY_MSの間隔を空けて)移動する様子が見えるようにする
 const CHAIN_RESERVED = -2;
+const CHAIN_STEP_DELAY_MS = 70;
+let animating = false;
 
-function drainChainWorkList(workList, color) {
-  while (workList.length > 0) {
+// 盤面内でgemを「自分の色と一致するマス」へ移動する(距離・経路を問わず常に可能)。
+// 移動後、移動元の8方向に同色gemがあり、かつ移動先の8方向に空きマスがあれば、
+// その同色gemも連鎖的に自分の色のマスへ自動移動する。連鎖が複数手ある場合は
+// 1手ずつアニメーションしながら進め、全て完了したらonCompleteを呼ぶ
+function performBoardMatchMove(fromIdx, toIdx, color, onComplete) {
+  const workList = [[fromIdx, toIdx]];
+  // 既にworkListへ積まれた(=移動先が決まって順番待ちの)起点マスの集合。
+  // 兄弟の連鎖発見で同じgemを二重に見つけてしまい、既に処理待ちなのに
+  // 誤って「取り残された」扱いにしてしまう不具合を防ぐために必要
+  const queuedOrigins = new Set();
+
+  function step() {
+    if (workList.length === 0) {
+      onComplete();
+      return;
+    }
     const [from, to] = workList.pop();
     if (gemColor[from] !== color) {
       // fromが別経路で既に動かされていた場合、予約していたtoを空きに戻す
       if (gemColor[to] === CHAIN_RESERVED) gemColor[to] = -1;
-      continue;
+      step();
+      return;
     }
 
     applyMatchDelta("board", from, -1);
@@ -566,40 +584,59 @@ function drainChainWorkList(workList, color) {
     gemColor[to] = color;
     applyMatchDelta("board", to, 1);
     paintBoardCell(to);
+    updateHud();
 
     if (hasEmptyNeighbor(to) && hasNeighborColor(from, color)) {
-      const chainNeighbors = neighbors8(from).filter((n) => gemColor[n] === color && cellColor[n] !== color);
+      const chainNeighbors = neighbors8(from).filter(
+        (n) => gemColor[n] === color && cellColor[n] !== color && !queuedOrigins.has(n)
+      );
       for (const n of chainNeighbors) {
         // toの近くを優先して探すことで、連鎖する複数のgemの移動先がなるべく
         // 隣接するマスにまとまるようにする
         const target = findEmptyMatchingCell(color, to);
         if (target !== -1) {
           gemColor[target] = CHAIN_RESERVED; // 他の兄弟が同じマスを選ばないよう即座に予約
+          queuedOrigins.add(n);
           workList.push([n, target]);
         } else {
           chainLeftovers.push(n); // 移動先が無く取り残された
         }
       }
     }
+    setTimeout(step, CHAIN_STEP_DELAY_MS);
   }
+  step(); // 手動で選んだ最初の1手は即座に反映し、連鎖分だけアニメーションする
 }
 
-// 盤面内でgemを「自分の色と一致するマス」へ移動する(距離・経路を問わず常に可能)。
-// 移動後、移動元の8方向に同色gemがあり、かつ移動先の8方向に空きマスがあれば、
-// その同色gemも連鎖的に自分の色のマスへ自動移動する
-function performBoardMatchMove(fromIdx, toIdx, color) {
-  drainChainWorkList([[fromIdx, toIdx]], color);
-}
+// 退避枠向けの連鎖処理。盤面向け(performBoardMatchMove)と同じ考え方だが、
+// 移動先が「盤面の一致マス」ではなく「退避枠の空きスロット」である点が異なる。
+// 退避枠に空きがある限り、つながっている同色gemが1つずつ順番に退避枠へ移動する
+function runRefugeChain(originIdx, color, onComplete) {
+  const workList = [];
+  // 既にworkListへ積まれた(=退避枠スロットが決まって順番待ちの)起点マスの集合。
+  // 兄弟の連鎖発見で同じgemを二重に見つけてしまうのを防ぐために必要
+  const queuedOrigins = new Set();
+  if (hasNeighborColor(originIdx, color)) {
+    const seedNeighbors = neighbors8(originIdx).filter((n) => gemColor[n] === color && cellColor[n] !== color);
+    for (const n of seedNeighbors) {
+      const slot = refugeGem.indexOf(null);
+      if (slot === -1) { chainLeftovers.push(n); continue; }
+      refugeGem[slot] = CHAIN_RESERVED;
+      queuedOrigins.add(n);
+      workList.push([n, slot]);
+    }
+  }
 
-// 退避枠向けの連鎖ワークリスト処理。盤面向け(drainChainWorkList)と同じ考え方だが、
-// 移動先が「盤面の一致マス」ではなく「退避枠の空きスロット」である点が異なる
-function drainChainWorkListToRefuge(workList, color) {
-  while (workList.length > 0) {
+  function step() {
+    if (workList.length === 0) {
+      onComplete();
+      return;
+    }
     const [from, refugeSlot] = workList.pop();
     if (gemColor[from] !== color) {
-      // fromが別経路で既に動かされていた場合、予約していた退避枠スロットを空きに戻す
       if (refugeGem[refugeSlot] === CHAIN_RESERVED) refugeGem[refugeSlot] = null;
-      continue;
+      step();
+      return;
     }
 
     applyMatchDelta("board", from, -1);
@@ -607,9 +644,12 @@ function drainChainWorkListToRefuge(workList, color) {
     paintBoardCell(from);
     refugeGem[refugeSlot] = color;
     paintRefugeCell(refugeSlot);
+    updateHud();
 
     if (hasNeighborColor(from, color)) {
-      const chainNeighbors = neighbors8(from).filter((n) => gemColor[n] === color && cellColor[n] !== color);
+      const chainNeighbors = neighbors8(from).filter(
+        (n) => gemColor[n] === color && cellColor[n] !== color && !queuedOrigins.has(n)
+      );
       for (const n of chainNeighbors) {
         const slot = refugeGem.indexOf(null);
         if (slot === -1) {
@@ -617,28 +657,14 @@ function drainChainWorkListToRefuge(workList, color) {
           continue;
         }
         refugeGem[slot] = CHAIN_RESERVED;
+        queuedOrigins.add(n);
         workList.push([n, slot]);
       }
     }
+    setTimeout(step, CHAIN_STEP_DELAY_MS);
   }
-}
-
-// 盤面上のマスoriginIdxが退避枠への移動で空になった時、連鎖の起点になり得るかを判定する。
-// 退避枠に空きがある限り、つながっている同色gemも次々と退避枠へ連鎖的に移動する
-function maybeTriggerChainToRefuge(originIdx, color) {
-  if (!hasNeighborColor(originIdx, color)) return;
-  const workList = [];
-  const chainNeighbors = neighbors8(originIdx).filter((n) => gemColor[n] === color && cellColor[n] !== color);
-  for (const n of chainNeighbors) {
-    const slot = refugeGem.indexOf(null);
-    if (slot === -1) {
-      chainLeftovers.push(n); // 退避枠が満杯で取り残された
-      continue;
-    }
-    refugeGem[slot] = CHAIN_RESERVED;
-    workList.push([n, slot]);
-  }
-  drainChainWorkListToRefuge(workList, color);
+  if (workList.length === 0) { onComplete(); return; } // 連鎖対象が無ければ待たずに即終了
+  setTimeout(step, CHAIN_STEP_DELAY_MS); // 連鎖分なので最初の1手からアニメーションする
 }
 
 // 退避枠のgemを色番号順に並べ替え(空きは末尾へ)、同色のgemがまとまって見えるようにする
@@ -654,8 +680,10 @@ function sortRefuge() {
 
 // 1手分の後処理(手数カウント・選択解除・ハイライト更新・退避枠ソート・HUD更新・クリア判定)。
 // 連鎖で移動先が無く取り残された同色gemがあれば、その1つを選択したままにして、
-// プレイヤーがすぐ続けて別の移動先を選べるようにする
+// プレイヤーがすぐ続けて別の移動先を選べるようにする。連鎖アニメーションが
+// 全て完了してから呼ばれるので、ここでanimatingフラグも解除する
 function finishMoveBookkeeping() {
+  animating = false;
   moveCount++;
   const leftover = chainLeftovers.find((idxCandidate) => gemColor[idxCandidate] !== -1);
   selected = leftover !== undefined ? { area: "board", idx: leftover } : null;
@@ -681,21 +709,23 @@ function moveGem(fromArea, fromIdx, toArea, toIdx) {
 
   // 盤面→退避枠の移動でも、空いたマスの8方向に同色gemがあれば連鎖させる。
   // 退避枠への連鎖は(盤面の一致マスではなく)退避枠の空きスロットへ、
-  // 退避枠に空きがある限り次々と移動する
+  // 退避枠に空きがある限り次々と、1つずつアニメーションしながら移動する
   if (fromArea === "board" && toArea === "refuge") {
-    maybeTriggerChainToRefuge(fromIdx, color);
+    runRefugeChain(fromIdx, color, finishMoveBookkeeping);
+  } else {
+    finishMoveBookkeeping();
   }
-
-  finishMoveBookkeeping();
 }
 
 function tryMoveTo(area, i) {
+  if (animating) return; // 連鎖アニメーション中はクリックを無視する
   const from = selected;
   const sameAreaBoard = from.area === "board" && area === "board";
   chainLeftovers = [];
 
   if (!sameAreaBoard) {
     // 退避場所が絡む移動は連結判定なしで自由
+    animating = true;
     moveGem(from.area, from.idx, area, i);
     return;
   }
@@ -703,8 +733,8 @@ function tryMoveTo(area, i) {
   // 盤面内の移動は、移動先のマスが選択したgemと同じ色の場合のみ、距離・経路を問わず常に許可
   const color = gemColor[from.idx];
   if (cellColor[i] === color) {
-    performBoardMatchMove(from.idx, i, color);
-    finishMoveBookkeeping();
+    animating = true;
+    performBoardMatchMove(from.idx, i, color, finishMoveBookkeeping);
   } else {
     flashInvalid(area, i);
     selected = null;
@@ -713,6 +743,7 @@ function tryMoveTo(area, i) {
 }
 
 function onCellClick(area, i) {
+  if (animating) return; // 連鎖アニメーション中はクリックを無視する
   const hasGem = area === "board" ? gemColor[i] !== -1 : refugeGem[i] !== null;
 
   if (!selected) {
