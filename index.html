@@ -528,23 +528,48 @@ function performBoardMatchMove(fromIdx, toIdx, color) {
   drainChainWorkList([[fromIdx, toIdx]], color);
 }
 
-// 盤面上のマスoriginIdxが(退避枠への移動などで)空になった時、連鎖の起点になり得るかを判定する。
-// destinationHasRoom: 移動先側に「空間の余裕」があるか
-//   - 盤面内への移動の場合: 移動先マスの8方向に空きマスがあるか
-//   - 退避枠への移動の場合: 退避枠は常に自由に出し入れできる領域なので、常にtrue扱い
-function maybeTriggerChain(originIdx, color, destinationHasRoom) {
-  if (!destinationHasRoom) return;
+// 退避枠向けの連鎖ワークリスト処理。盤面向け(drainChainWorkList)と同じ考え方だが、
+// 移動先が「盤面の一致マス」ではなく「退避枠の空きスロット」である点が異なる
+function drainChainWorkListToRefuge(workList, color) {
+  while (workList.length > 0) {
+    const [from, refugeSlot] = workList.pop();
+    if (gemColor[from] !== color) {
+      // fromが別経路で既に動かされていた場合、予約していた退避枠スロットを空きに戻す
+      if (refugeGem[refugeSlot] === CHAIN_RESERVED) refugeGem[refugeSlot] = null;
+      continue;
+    }
+
+    applyMatchDelta("board", from, -1);
+    gemColor[from] = -1;
+    paintBoardCell(from);
+    refugeGem[refugeSlot] = color;
+    paintRefugeCell(refugeSlot);
+
+    if (hasNeighborColor(from, color)) {
+      const chainNeighbors = neighbors8(from).filter((n) => gemColor[n] === color && cellColor[n] !== color);
+      for (const n of chainNeighbors) {
+        const slot = refugeGem.indexOf(null);
+        if (slot === -1) break; // 退避枠が満杯になったらそこで連鎖は止まる
+        refugeGem[slot] = CHAIN_RESERVED;
+        workList.push([n, slot]);
+      }
+    }
+  }
+}
+
+// 盤面上のマスoriginIdxが退避枠への移動で空になった時、連鎖の起点になり得るかを判定する。
+// 退避枠に空きがある限り、つながっている同色gemも次々と退避枠へ連鎖的に移動する
+function maybeTriggerChainToRefuge(originIdx, color) {
   if (!hasNeighborColor(originIdx, color)) return;
   const workList = [];
   const chainNeighbors = neighbors8(originIdx).filter((n) => gemColor[n] === color && cellColor[n] !== color);
   for (const n of chainNeighbors) {
-    const target = findEmptyMatchingCell(color);
-    if (target !== -1) {
-      gemColor[target] = CHAIN_RESERVED;
-      workList.push([n, target]);
-    }
+    const slot = refugeGem.indexOf(null);
+    if (slot === -1) break;
+    refugeGem[slot] = CHAIN_RESERVED;
+    workList.push([n, slot]);
   }
-  drainChainWorkList(workList, color);
+  drainChainWorkListToRefuge(workList, color);
 }
 
 // 退避枠のgemを色番号順に並べ替え(空きは末尾へ)、同色のgemがまとまって見えるようにする
@@ -582,10 +607,11 @@ function moveGem(fromArea, fromIdx, toArea, toIdx) {
   if (toArea === "board") { gemColor[toIdx] = color; paintBoardCell(toIdx); applyMatchDelta("board", toIdx, 1); }
   else { refugeGem[toIdx] = color; paintRefugeCell(toIdx); }
 
-  // 盤面→退避枠の移動でも、空いたマスの8方向に同色gemがあれば連鎖させる
-  // (退避枠は常に自由に出し入れできる領域なので、移動先側の空き判定は常にtrue扱い)
-  if (fromArea === "board") {
-    maybeTriggerChain(fromIdx, color, true);
+  // 盤面→退避枠の移動でも、空いたマスの8方向に同色gemがあれば連鎖させる。
+  // 退避枠への連鎖は(盤面の一致マスではなく)退避枠の空きスロットへ、
+  // 退避枠に空きがある限り次々と移動する
+  if (fromArea === "board" && toArea === "refuge") {
+    maybeTriggerChainToRefuge(fromIdx, color);
   }
 
   finishMoveBookkeeping();
