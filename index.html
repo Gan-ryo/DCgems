@@ -88,8 +88,19 @@
   #refuge-label { font-size: 0.8rem; opacity: 0.75; }
   #refuge {
     display: grid;
-    grid-template-columns: repeat(10, 22px);
+    grid-template-columns: repeat(20, 22px);
     gap: 3px;
+  }
+  .cell.refuge-locked {
+    opacity: 0.3;
+    cursor: not-allowed;
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.08),
+      rgba(255, 255, 255, 0.08) 3px,
+      transparent 3px,
+      transparent 7px
+    );
   }
   .cell {
     position: relative;
@@ -184,6 +195,8 @@
     <span class="sep">|</span>
     <span>退避場所のgem: <strong id="refuge-gem-count">0</strong></span>
     <span class="sep">|</span>
+    <span>退避枠(解放): <strong id="refuge-unlocked-count">0</strong> / <strong id="refuge-max-count">0</strong></span>
+    <span class="sep">|</span>
     <span>手数: <strong id="move-count">0</strong></span>
     <button id="new-board">新しい盤面</button>
   </div>
@@ -218,7 +231,29 @@
 const ROWS = 50;
 const COLS = 50;
 const SIZE = ROWS * COLS;
-const REFUGE_SIZE = 200;
+// 退避枠は縦10x横20(=200マス)を最大とし、最初は縦5行(100マス)だけ使える状態で始まる。
+// 一致マスの数が増えるごとに段階的に行が解放され、全マス一致(クリア)で最大の10行になる
+const REFUGE_COLS = 20;
+const REFUGE_MIN_ROWS = 5;
+const REFUGE_MAX_ROWS = 10;
+const REFUGE_SIZE = REFUGE_COLS * REFUGE_MAX_ROWS;
+
+// 現在、一致マスの数に応じて解放されている退避枠のマス数を返す
+function getUnlockedRefugeCount() {
+  const extraRowsMax = REFUGE_MAX_ROWS - REFUGE_MIN_ROWS;
+  const interval = SIZE / extraRowsMax; // この数だけ一致するたびに1行解放される
+  const extraRows = Math.min(extraRowsMax, Math.floor(matchCount / interval));
+  return (REFUGE_MIN_ROWS + extraRows) * REFUGE_COLS;
+}
+
+// 現在解放されている範囲内から、空いている退避枠スロットを1つ探す(無ければ-1)
+function findFreeUnlockedRefugeSlot() {
+  const unlockedCount = getUnlockedRefugeCount();
+  for (let i = 0; i < unlockedCount; i++) {
+    if (refugeGem[i] === null) return i;
+  }
+  return -1;
+}
 
 // DCロゴ(青地に白抜き、外周は黒枠)をベースにした、青系統+白/クリーム系統+ブラックのパレット
 const PALETTE = [
@@ -250,7 +285,10 @@ const matchCountEl = document.getElementById("match-count");
 const mismatchCountEl = document.getElementById("mismatch-count");
 const emptyCountEl = document.getElementById("empty-count");
 const refugeGemCountEl = document.getElementById("refuge-gem-count");
+const refugeUnlockedCountEl = document.getElementById("refuge-unlocked-count");
+const refugeMaxCountEl = document.getElementById("refuge-max-count");
 const moveCountEl = document.getElementById("move-count");
+refugeMaxCountEl.textContent = REFUGE_SIZE;
 const winBannerEl = document.getElementById("win-banner");
 const winMovesEl = document.getElementById("win-moves");
 
@@ -581,6 +619,7 @@ function performBoardMatchMove(fromIdx, toIdx, color, onComplete) {
           workList.push([n, target]);
         } else {
           chainLeftovers.push(n); // 移動先が無く取り残された
+          queuedOrigins.add(n); // 同じgemを二重に取り残された扱いにしないよう記録
         }
       }
     }
@@ -600,8 +639,8 @@ function runRefugeChain(originIdx, color, onComplete) {
   if (hasNeighborColor(originIdx, color)) {
     const seedNeighbors = neighbors8(originIdx).filter((n) => gemColor[n] === color && cellColor[n] !== color);
     for (const n of seedNeighbors) {
-      const slot = refugeGem.indexOf(null);
-      if (slot === -1) { chainLeftovers.push(n); continue; }
+      const slot = findFreeUnlockedRefugeSlot();
+      if (slot === -1) { chainLeftovers.push(n); queuedOrigins.add(n); continue; }
       refugeGem[slot] = CHAIN_RESERVED;
       queuedOrigins.add(n);
       workList.push([n, slot]);
@@ -632,9 +671,10 @@ function runRefugeChain(originIdx, color, onComplete) {
         (n) => gemColor[n] === color && cellColor[n] !== color && !queuedOrigins.has(n)
       );
       for (const n of chainNeighbors) {
-        const slot = refugeGem.indexOf(null);
+        const slot = findFreeUnlockedRefugeSlot();
         if (slot === -1) {
           chainLeftovers.push(n); // 退避枠が満杯で取り残された
+          queuedOrigins.add(n); // 同じgemを二重に取り残された扱いにしないよう記録
           continue;
         }
         refugeGem[slot] = CHAIN_RESERVED;
@@ -726,6 +766,7 @@ function moveGem(fromArea, fromIdx, toArea, toIdx) {
 
 function tryMoveTo(area, i) {
   if (animating) return; // 連鎖アニメーション中はクリックを無視する
+  if (area === "refuge" && i >= getUnlockedRefugeCount()) return; // 未解放のスロットへは移動不可
   const from = selected;
   const sameAreaBoard = from.area === "board" && area === "board";
   chainLeftovers = [];
@@ -751,6 +792,7 @@ function tryMoveTo(area, i) {
 
 function onCellClick(area, i) {
   if (animating) return; // 連鎖アニメーション中はクリックを無視する
+  if (area === "refuge" && i >= getUnlockedRefugeCount()) return; // 未解放のスロットは操作不可
   const occupied = area === "board" ? gemColor[i] !== -1 : refugeGem[i] !== null;
   // 盤面上で既にマスの色と一致しているgemは、誤ってクリアした配置を崩さないよう選択できない
   const isMatched = area === "board" && gemColor[i] !== -1 && gemColor[i] === cellColor[i];
@@ -795,6 +837,15 @@ refugeEl.addEventListener("click", (e) => {
   onCellClick(cell.dataset.area, Number(cell.dataset.idx));
 });
 
+// 一致マスの数に応じて解放されている退避枠スロットの見た目(refuge-lockedクラス)を更新する
+function updateRefugeLockVisuals() {
+  const unlockedCount = getUnlockedRefugeCount();
+  for (let i = 0; i < REFUGE_SIZE; i++) {
+    refugeCellEls[i].classList.toggle("refuge-locked", i >= unlockedCount);
+  }
+  refugeUnlockedCountEl.textContent = unlockedCount;
+}
+
 function updateHud() {
   let emptyCount = 0;
   for (let i = 0; i < SIZE; i++) if (gemColor[i] === -1) emptyCount++;
@@ -807,6 +858,7 @@ function updateHud() {
   emptyCountEl.textContent = emptyCount;
   refugeGemCountEl.textContent = refugeGemCount;
   moveCountEl.textContent = moveCount;
+  updateRefugeLockVisuals();
 }
 
 function renderPaletteLegend() {
