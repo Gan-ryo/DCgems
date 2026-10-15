@@ -488,6 +488,17 @@ function autoCascadeColor(color, boardAnchorIdx) {
   }
 }
 
+// 退避枠のgemを色番号順に並べ替え(空きは末尾へ)、同色のgemがまとまって見えるようにする
+function sortRefuge() {
+  refugeGem.sort((a, b) => {
+    if (a === null && b === null) return 0;
+    if (a === null) return 1;
+    if (b === null) return -1;
+    return a - b;
+  });
+  for (let i = 0; i < REFUGE_SIZE; i++) paintRefugeCell(i);
+}
+
 function moveGem(fromArea, fromIdx, toArea, toIdx) {
   const color = fromArea === "board" ? gemColor[fromIdx] : refugeGem[fromIdx];
 
@@ -504,6 +515,7 @@ function moveGem(fromArea, fromIdx, toArea, toIdx) {
   const boardAnchor = toArea === "board" ? toIdx : (fromArea === "board" ? fromIdx : null);
   if (boardAnchor !== null) autoCascadeColor(color, boardAnchor);
 
+  sortRefuge();
   updateHud();
 
   if (matchCount === SIZE) {
