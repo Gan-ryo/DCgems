@@ -275,11 +275,52 @@ function isInsideDCLogo(i) {
 // マスの色を、実画像から得たDCロゴの形に沿って「青系統」か「白/クリーム系統」かを決め、
 // その中でセルごとにランダムな色味(地域の色むら)を与える。
 // 盤面いちばん外側の枠(最外周の1マス分)は、ロゴ実画像の黒枠に合わせてブラック固定とする
-function generateCellColors() {
-  for (let i = 0; i < SIZE; i++) {
-    const isBlue = isInsideDCLogo(i);
-    cellColor[i] = isBlue ? randomInt(3) : 3 + randomInt(3);
+// cellIndices(同じ系統に属するマスの集合)に、paletteIndices(その系統内の具体色)から
+// ランダムに選んだ色を持つ「種」をいくつか撒き、各マスは自分の系統内で最も近い種の色を
+// 受け継ぐ(ボロノイ風のパッチ塗り)。1マスごとに独立ランダムに色を選ぶと同系統内でも
+// 隣接マス同士の色がバラバラでザラついて見えるため、隣接マスはできるだけ同じ具体色に
+// まとまるようにする
+function assignPatchColors(cellIndices, paletteIndices, seedCount) {
+  if (cellIndices.length === 0) return;
+  const actualSeedCount = Math.max(1, Math.min(seedCount, cellIndices.length));
+  const shuffled = cellIndices.slice();
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    const tmp = shuffled[i]; shuffled[i] = shuffled[j]; shuffled[j] = tmp;
   }
+  const seeds = [];
+  for (let i = 0; i < actualSeedCount; i++) {
+    const seedIdx = shuffled[i];
+    seeds.push({
+      r: Math.floor(seedIdx / COLS),
+      c: seedIdx % COLS,
+      color: paletteIndices[randomInt(paletteIndices.length)],
+    });
+  }
+  for (const i of cellIndices) {
+    const r = Math.floor(i / COLS), c = i % COLS;
+    let bestColor = seeds[0].color;
+    let bestDist = Infinity;
+    for (const seed of seeds) {
+      const dr = r - seed.r, dc = c - seed.c;
+      const dist = dr * dr + dc * dc;
+      if (dist < bestDist) { bestDist = dist; bestColor = seed.color; }
+    }
+    cellColor[i] = bestColor;
+  }
+}
+
+function generateCellColors() {
+  const blueCells = [];
+  const whiteCells = [];
+  for (let i = 0; i < SIZE; i++) {
+    if (isInsideDCLogo(i)) blueCells.push(i);
+    else whiteCells.push(i);
+  }
+  // 面積に応じて種の数を決める(狭すぎず、1マスごとのランダムにもならない程度のパッチサイズ)
+  assignPatchColors(blueCells, [0, 1, 2], Math.max(5, Math.round(blueCells.length / 50)));
+  assignPatchColors(whiteCells, [3, 4, 5], Math.max(5, Math.round(whiteCells.length / 50)));
+
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1) {
