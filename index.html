@@ -109,15 +109,13 @@
   .cell.has-gem {
     background-image:
       radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0) 45%),
-      radial-gradient(circle, var(--gem-color, #888) 55%, var(--gem-dark, #555) 100%);
-    background-size: 78% 78%;
+      radial-gradient(circle closest-side, var(--gem-color, #888) 0%, var(--gem-color, #888) 55%, var(--gem-dark, #555) 92%, transparent 100%);
+    background-size: 55% 55%, 100% 100%;
     background-position: center;
     background-repeat: no-repeat;
-    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4);
   }
   .refuge .cell.has-gem {
-    background-size: 82% 82%;
-    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.45);
+    background-size: 50% 50%, 100% 100%;
   }
   .cell.selected {
     outline: 2px solid #fff;
