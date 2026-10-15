@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DC Gems</title>
+<style>
+  :root {
+    --bg: #0d1420;
+    --panel: #162236;
+    --text: #e8edf5;
+    --accent: #4f95ea;
+    --cell-size: 12px;
+    --cell-gap: 1px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 20px 12px 40px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  }
+  h1 { margin: 0; font-size: 1.4rem; font-weight: 600; }
+  #hud {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 20px;
+    font-size: 0.95rem;
+    background: var(--panel);
+    padding: 8px 20px;
+    border-radius: 10px;
+  }
+  #hud .sep { opacity: 0.4; }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 7px 16px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  button:hover { opacity: 0.85; }
+  .layout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    align-items: flex-start;
+    justify-content: center;
+    max-width: 100%;
+  }
+  #board-area {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+  }
+  #board-scroll {
+    max-width: min(90vw, 900px);
+    max-height: 70vh;
+    overflow: auto;
+    background: var(--panel);
+    border-radius: 12px;
+    padding: 10px;
+  }
+  #board {
+    display: grid;
+    grid-template-columns: repeat(100, var(--cell-size));
+    grid-template-rows: repeat(100, var(--cell-size));
+    gap: var(--cell-gap);
+  }
+  #refuge-wrap {
+    background: var(--panel);
+    border-radius: 12px;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  #refuge-label { font-size: 0.8rem; opacity: 0.75; }
+  #refuge {
+    display: grid;
+    grid-template-columns: repeat(10, 22px);
+    gap: 3px;
+  }
+  .cell {
+    position: relative;
+    width: var(--cell-size);
+    height: var(--cell-size);
+    border-radius: 2px;
+    cursor: pointer;
+    background: var(--cell-color, #333);
+  }
+  .refuge .cell {
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    background: #24344d;
+    border: 1px dashed rgba(255, 255, 255, 0.25);
+  }
+  .cell.has-gem {
+    background-image:
+      radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0) 45%),
+      radial-gradient(circle, var(--gem-color, #888) 55%, var(--gem-dark, #555) 100%);
+    background-size: 78% 78%;
+    background-position: center;
+    background-repeat: no-repeat;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+  }
+  .refuge .cell.has-gem {
+    background-size: 82% 82%;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.45);
+  }
+  .cell.selected {
+    outline: 2px solid #fff;
+    outline-offset: -1px;
+    z-index: 2;
+  }
+  .cell.match-flag::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+  }
+  .cell.invalid {
+    animation: invalidFlash 0.35s ease;
+  }
+  @keyframes invalidFlash {
+    0%, 100% { outline: 2px solid transparent; outline-offset: -1px; }
+    40% { outline: 2px solid #ff5a5a; outline-offset: -1px; }
+  }
+  #sidebar {
+    background: var(--panel);
+    border-radius: 12px;
+    padding: 16px 20px;
+    max-width: 280px;
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
+  #sidebar h2 {
+    margin: 0 0 10px;
+    font-size: 1rem;
+    color: var(--accent);
+  }
+  #sidebar ul { margin: 0 0 14px; padding-left: 1.2em; }
+  #sidebar ul:last-child { margin-bottom: 0; }
+  #win-banner {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.75);
+    z-index: 10;
+    font-size: 1.6rem;
+    font-weight: 700;
+    text-align: center;
+    padding: 20px;
+  }
+  #win-banner.show { display: flex; }
+</style>
+</head>
+<body>
+  <h1>DC Gems</h1>
+  <div id="hud">
+    <span>一致: <strong id="match-count">0</strong> / 10000</span>
+    <span class="sep">|</span>
+    <span>手数: <strong id="move-count">0</strong></span>
+    <button id="new-board">新しい盤面</button>
+  </div>
+  <div class="layout">
+    <div id="board-area">
+      <div id="board-scroll">
+        <div id="board"></div>
+      </div>
+      <div id="refuge-wrap">
+        <div id="refuge-label">退避場所(盤面とは切り離された領域。自由に出し入れできます)</div>
+        <div id="refuge" class="refuge"></div>
+      </div>
+    </div>
+    <aside id="sidebar">
+      <h2>遊び方</h2>
+      <ul>
+        <li>gem(宝石)をクリックして選択し、空いているマスをクリックすると移動できます</li>
+        <li>盤面内の移動は、選択したgemと同じ色のgem、または空きマスが上下左右斜め(8方向)に連続してつながっている範囲にしか行えません。違う色のgemがあるとそこで道が途切れます</li>
+        <li>退避場所は盤面と切り離されているので、盤面⇔退避場所の移動は条件なしで自由に行えます(退避場所に空きがある場合)</li>
+        <li>全10,000マスのgemの色とマスの色が一致するとクリアです</li>
+        <li>最初は盤面が完全に埋まっているので、退避場所にgemを逃がすところから始めましょう</li>
+      </ul>
+      <h2>色パレット</h2>
+      <ul id="palette-legend"></ul>
+    </aside>
+  </div>
+
+  <div id="win-banner"><div>🎉 クリア! 🎉<br><span id="win-moves"></span></div></div>
+
+<script>
+const ROWS = 100;
+const COLS = 100;
+const SIZE = ROWS * COLS;
+const REFUGE_SIZE = 10;
+
+// DCロゴ(青地に白抜き)をベースにした、青系統+白/クリーム系統のパレット
+const PALETTE = [
+  { name: "ディープブルー", cell: "#0b3c8c", gem: "#2f6fe0", gemDark: "#06245c" },
+  { name: "ロイヤルブルー", cell: "#1e66c2", gem: "#4f95ea", gemDark: "#114a94" },
+  { name: "スカイブルー",   cell: "#5ba9e8", gem: "#8fcbf5", gemDark: "#2e7fc4" },
+  { name: "ホワイト",       cell: "#ffffff", gem: "#f5f7fa", gemDark: "#c7cfda" },
+  { name: "クリーム",       cell: "#f2e6c9", gem: "#fbf3de", gemDark: "#d8c79c" },
+  { name: "ペールアイス",   cell: "#dce8f5", gem: "#eff6fc", gemDark: "#b9cde0" },
+];
+const COLORS = PALETTE.length;
+
+let cellColor = new Int8Array(SIZE);   // マス自体の色(固定、ゲーム開始時のみ決定)
+let gemColor = new Int8Array(SIZE).fill(-1); // そのマスに乗っているgemの色(-1=空き)
+let refugeGem = new Array(REFUGE_SIZE).fill(null);
+
+let selected = null; // { area: "board", idx } | { area: "refuge", idx }
+let matchCount = 0;
+let moveCount = 0;
+
+const boardEl = document.getElementById("board");
+const refugeEl = document.getElementById("refuge");
+const matchCountEl = document.getElementById("match-count");
+const moveCountEl = document.getElementById("move-count");
+const winBannerEl = document.getElementById("win-banner");
+const winMovesEl = document.getElementById("win-moves");
+
+function idx(r, c) { return r * COLS + c; }
+
+// --- 盤面生成 ---
+
+function randomInt(n) { return Math.floor(Math.random() * n); }
+
+// マスの色をボロノイ風(ランダムな種から一番近いもの)に割り当て、地域ごとの色むらを作る
+function generateCellColors() {
+  const seedCount = 70;
+  const seeds = [];
+  for (let i = 0; i < seedCount; i++) {
+    seeds.push({ r: randomInt(ROWS), c: randomInt(COLS), color: randomInt(COLORS) });
+  }
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      let best = -1, bestDist = Infinity;
+      for (const s of seeds) {
+        const dr = r - s.r, dc = c - s.c;
+        const d = dr * dr + dc * dc;
+        if (d < bestDist) { bestDist = d; best = s.color; }
+      }
+      cellColor[idx(r, c)] = best;
+    }
+  }
+}
+
+function generateGems() {
+  for (let i = 0; i < SIZE; i++) {
+    const own = cellColor[i];
+    let color;
+    do { color = randomInt(COLORS); } while (color === own);
+    gemColor[i] = color;
+  }
+  for (let i = 0; i < REFUGE_SIZE; i++) refugeGem[i] = null;
+}
+
+function setupNewGame() {
+  generateCellColors();
+  generateGems();
+  selected = null;
+  moveCount = 0;
+  matchCount = 0;
+  for (let i = 0; i < SIZE; i++) {
+    if (gemColor[i] === cellColor[i]) matchCount++; // 通常は起こらないが念のため
+  }
+  renderAll();
+  updateHud();
+  winBannerEl.classList.remove("show");
+}
+
+// --- 描画 ---
+
+const boardCellEls = new Array(SIZE);
+const refugeCellEls = new Array(REFUGE_SIZE);
+
+function buildBoardDom() {
+  boardEl.innerHTML = "";
+  const frag = document.createDocumentFragment();
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const el = document.createElement("div");
+      el.className = "cell";
+      const i = idx(r, c);
+      el.dataset.area = "board";
+      el.dataset.idx = String(i);
+      frag.appendChild(el);
+      boardCellEls[i] = el;
+    }
+  }
+  boardEl.appendChild(frag);
+
+  refugeEl.innerHTML = "";
+  const rfrag = document.createDocumentFragment();
+  for (let i = 0; i < REFUGE_SIZE; i++) {
+    const el = document.createElement("div");
+    el.className = "cell";
+    el.dataset.area = "refuge";
+    el.dataset.idx = String(i);
+    rfrag.appendChild(el);
+    refugeCellEls[i] = el;
+  }
+  refugeEl.appendChild(rfrag);
+}
+
+function paintBoardCell(i) {
+  const el = boardCellEls[i];
+  el.style.setProperty("--cell-color", PALETTE[cellColor[i]].cell);
+  const g = gemColor[i];
+  if (g === -1) {
+    el.classList.remove("has-gem");
+    el.style.removeProperty("--gem-color");
+    el.style.removeProperty("--gem-dark");
+  } else {
+    el.classList.add("has-gem");
+    el.style.setProperty("--gem-color", PALETTE[g].gem);
+    el.style.setProperty("--gem-dark", PALETTE[g].gemDark);
+  }
+  el.classList.toggle("match-flag", g !== -1 && g === cellColor[i]);
+}
+
+function paintRefugeCell(i) {
+  const el = refugeCellEls[i];
+  const g = refugeGem[i];
+  if (g === null) {
+    el.classList.remove("has-gem");
+    el.style.removeProperty("--gem-color");
+    el.style.removeProperty("--gem-dark");
+  } else {
+    el.classList.add("has-gem");
+    el.style.setProperty("--gem-color", PALETTE[g].gem);
+    el.style.setProperty("--gem-dark", PALETTE[g].gemDark);
+  }
+}
+
+function renderAll() {
+  if (!boardCellEls[0]) buildBoardDom();
+  for (let i = 0; i < SIZE; i++) paintBoardCell(i);
+  for (let i = 0; i < REFUGE_SIZE; i++) paintRefugeCell(i);
+  updateSelectionHighlight();
+}
+
+function updateSelectionHighlight() {
+  for (const el of boardCellEls) el.classList.remove("selected");
+  for (const el of refugeCellEls) el.classList.remove("selected");
+  if (!selected) return;
+  const el = selected.area === "board" ? boardCellEls[selected.idx] : refugeCellEls[selected.idx];
+  el.classList.add("selected");
+}
+
+function flashInvalid(area, i) {
+  const el = area === "board" ? boardCellEls[i] : refugeCellEls[i];
+  el.classList.remove("invalid");
+  void el.offsetWidth;
+  el.classList.add("invalid");
+}
+
+// --- 連結判定(フラッドフィル) ---
+
+// 盤面内で、起点(startIdx, 色color)から「同色gem or 空きマス」を8方向にたどれる範囲を返す
+function floodFillReachable(startIdx, color) {
+  const visited = new Uint8Array(SIZE);
+  const stack = [startIdx];
+  visited[startIdx] = 1;
+  const sr = Math.floor(startIdx / COLS), sc0 = startIdx % COLS;
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    const r = Math.floor(cur / COLS), c = cur % COLS;
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        const nr = r + dr, nc = c + dc;
+        if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+        const ni = idx(nr, nc);
+        if (visited[ni]) continue;
+        const g = gemColor[ni];
+        if (g === -1 || g === color) {
+          visited[ni] = 1;
+          stack.push(ni);
+        }
+      }
+    }
+  }
+  return visited;
+}
+
+// --- 移動処理 ---
+
+function applyMatchDelta(area, i, delta) {
+  if (area !== "board") return;
+  if (gemColor[i] !== -1 && gemColor[i] === cellColor[i]) matchCount += delta;
+}
+
+function moveGem(fromArea, fromIdx, toArea, toIdx) {
+  const color = fromArea === "board" ? gemColor[fromIdx] : refugeGem[fromIdx];
+
+  if (fromArea === "board") { applyMatchDelta("board", fromIdx, -1); gemColor[fromIdx] = -1; paintBoardCell(fromIdx); }
+  else { refugeGem[fromIdx] = null; paintRefugeCell(fromIdx); }
+
+  if (toArea === "board") { gemColor[toIdx] = color; paintBoardCell(toIdx); applyMatchDelta("board", toIdx, 1); }
+  else { refugeGem[toIdx] = color; paintRefugeCell(toIdx); }
+
+  moveCount++;
+  selected = null;
+  updateSelectionHighlight();
+  updateHud();
+
+  if (matchCount === SIZE) {
+    winMovesEl.textContent = `${moveCount}手でクリアしました`;
+    winBannerEl.classList.add("show");
+  }
+}
+
+function tryMoveTo(area, i) {
+  const from = selected;
+  const sameAreaBoard = from.area === "board" && area === "board";
+
+  if (!sameAreaBoard) {
+    // 退避場所が絡む移動は連結判定なしで自由
+    moveGem(from.area, from.idx, area, i);
+    return;
+  }
+
+  const color = gemColor[from.idx];
+  const reachable = floodFillReachable(from.idx, color);
+  if (reachable[i]) {
+    moveGem(from.area, from.idx, area, i);
+  } else {
+    flashInvalid(area, i);
+    selected = null;
+    updateSelectionHighlight();
+  }
+}
+
+function onCellClick(area, i) {
+  const hasGem = area === "board" ? gemColor[i] !== -1 : refugeGem[i] !== null;
+
+  if (!selected) {
+    if (hasGem) {
+      selected = { area, idx: i };
+      updateSelectionHighlight();
+    }
+    return;
+  }
+
+  if (selected.area === area && selected.idx === i) {
+    selected = null;
+    updateSelectionHighlight();
+    return;
+  }
+
+  if (hasGem) {
+    // 別のgemをクリック -> 選択し直す
+    selected = { area, idx: i };
+    updateSelectionHighlight();
+    return;
+  }
+
+  // 空きマスをクリック -> 移動を試みる
+  if (area === "refuge" && refugeGem[i] !== null) return; // 念のため
+  tryMoveTo(area, i);
+}
+
+boardEl.addEventListener("click", (e) => {
+  const cell = e.target.closest(".cell");
+  if (!cell) return;
+  onCellClick(cell.dataset.area, Number(cell.dataset.idx));
+});
+refugeEl.addEventListener("click", (e) => {
+  const cell = e.target.closest(".cell");
+  if (!cell) return;
+  onCellClick(cell.dataset.area, Number(cell.dataset.idx));
+});
+
+function updateHud() {
+  matchCountEl.textContent = matchCount;
+  moveCountEl.textContent = moveCount;
+}
+
+function renderPaletteLegend() {
+  const ul = document.getElementById("palette-legend");
+  ul.innerHTML = "";
+  PALETTE.forEach((p) => {
+    const li = document.createElement("li");
+    li.style.display = "flex";
+    li.style.alignItems = "center";
+    li.style.gap = "8px";
+    li.style.marginBottom = "6px";
+    const swatch = document.createElement("span");
+    swatch.style.display = "inline-block";
+    swatch.style.width = "14px";
+    swatch.style.height = "14px";
+    swatch.style.borderRadius = "3px";
+    swatch.style.background = p.cell;
+    swatch.style.boxShadow = "inset 0 0 0 1px rgba(255,255,255,0.3)";
+    li.appendChild(swatch);
+    li.appendChild(document.createTextNode(p.name));
+    ul.appendChild(li);
+  });
+}
+
+document.getElementById("new-board").addEventListener("click", setupNewGame);
+
+renderPaletteLegend();
+setupNewGame();
+</script>
+</body>
+</html>
