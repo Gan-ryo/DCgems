@@ -495,27 +495,65 @@ function applyMatchDelta(area, i, delta) {
   if (gemColor[i] !== -1 && gemColor[i] === cellColor[i]) matchCount += delta;
 }
 
-// 盤面内でgemを「自分の色と一致するマス」へ移動する(距離・経路を問わず常に可能)。
-// 移動後、移動元の8方向に同色gemがあり、かつ移動先の8方向に空きマスがあれば、
-// その同色gemも連鎖的に自分の色のマスへ自動移動する(再帰的に連鎖していく)。
-// 再帰呼び出しは1つの兄弟を完全に処理し終えてから次の兄弟へ進むため、
-// findEmptyMatchingColorが同じマスを二重に選んでしまうことはない
-function performBoardMatchMove(fromIdx, toIdx, color) {
-  applyMatchDelta("board", fromIdx, -1);
-  gemColor[fromIdx] = -1;
-  paintBoardCell(fromIdx);
-  gemColor[toIdx] = color;
-  applyMatchDelta("board", toIdx, 1);
-  paintBoardCell(toIdx);
+// 連鎖移動の処理はすべてこのワークリスト(配列を使ったスタック)経由で行う。
+// 深い連鎖が再帰呼び出しでスタックオーバーフローしないようにするためと、
+// 「移動先セルを見つけた時点で即座に予約する」ことで、複数の兄弟が同じ
+// 空きマスを二重に取り合ってgemが消失するのを防ぐための、2つの目的がある
+const CHAIN_RESERVED = -2;
 
-  if (hasNeighborColor(fromIdx, color) && hasEmptyNeighbor(toIdx)) {
-    const chainNeighbors = neighbors8(fromIdx).filter((n) => gemColor[n] === color);
-    for (const n of chainNeighbors) {
-      if (gemColor[n] !== color) continue; // 先に処理済みの兄弟経由で既に動いていたら無視
-      const target = findEmptyMatchingCell(color);
-      if (target !== -1) performBoardMatchMove(n, target, color);
+function drainChainWorkList(workList, color) {
+  while (workList.length > 0) {
+    const [from, to] = workList.pop();
+    if (gemColor[from] !== color) {
+      // fromが別経路で既に動かされていた場合、予約していたtoを空きに戻す
+      if (gemColor[to] === CHAIN_RESERVED) gemColor[to] = -1;
+      continue;
+    }
+
+    applyMatchDelta("board", from, -1);
+    gemColor[from] = -1;
+    paintBoardCell(from);
+    gemColor[to] = color;
+    applyMatchDelta("board", to, 1);
+    paintBoardCell(to);
+
+    if (hasEmptyNeighbor(to) && hasNeighborColor(from, color)) {
+      const chainNeighbors = neighbors8(from).filter((n) => gemColor[n] === color && cellColor[n] !== color);
+      for (const n of chainNeighbors) {
+        const target = findEmptyMatchingCell(color);
+        if (target !== -1) {
+          gemColor[target] = CHAIN_RESERVED; // 他の兄弟が同じマスを選ばないよう即座に予約
+          workList.push([n, target]);
+        }
+      }
     }
   }
+}
+
+// 盤面内でgemを「自分の色と一致するマス」へ移動する(距離・経路を問わず常に可能)。
+// 移動後、移動元の8方向に同色gemがあり、かつ移動先の8方向に空きマスがあれば、
+// その同色gemも連鎖的に自分の色のマスへ自動移動する
+function performBoardMatchMove(fromIdx, toIdx, color) {
+  drainChainWorkList([[fromIdx, toIdx]], color);
+}
+
+// 盤面上のマスoriginIdxが(退避枠への移動などで)空になった時、連鎖の起点になり得るかを判定する。
+// destinationHasRoom: 移動先側に「空間の余裕」があるか
+//   - 盤面内への移動の場合: 移動先マスの8方向に空きマスがあるか
+//   - 退避枠への移動の場合: 退避枠は常に自由に出し入れできる領域なので、常にtrue扱い
+function maybeTriggerChain(originIdx, color, destinationHasRoom) {
+  if (!destinationHasRoom) return;
+  if (!hasNeighborColor(originIdx, color)) return;
+  const workList = [];
+  const chainNeighbors = neighbors8(originIdx).filter((n) => gemColor[n] === color && cellColor[n] !== color);
+  for (const n of chainNeighbors) {
+    const target = findEmptyMatchingCell(color);
+    if (target !== -1) {
+      gemColor[target] = CHAIN_RESERVED;
+      workList.push([n, target]);
+    }
+  }
+  drainChainWorkList(workList, color);
 }
 
 // 退避枠のgemを色番号順に並べ替え(空きは末尾へ)、同色のgemがまとまって見えるようにする
@@ -552,6 +590,12 @@ function moveGem(fromArea, fromIdx, toArea, toIdx) {
 
   if (toArea === "board") { gemColor[toIdx] = color; paintBoardCell(toIdx); applyMatchDelta("board", toIdx, 1); }
   else { refugeGem[toIdx] = color; paintRefugeCell(toIdx); }
+
+  // 盤面→退避枠の移動でも、空いたマスの8方向に同色gemがあれば連鎖させる
+  // (退避枠は常に自由に出し入れできる領域なので、移動先側の空き判定は常にtrue扱い)
+  if (fromArea === "board") {
+    maybeTriggerChain(fromIdx, color, true);
+  }
 
   finishMoveBookkeeping();
 }
