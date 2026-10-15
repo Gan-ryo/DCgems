@@ -241,61 +241,30 @@ function idx(r, c) { return r * COLS + c; }
 
 function randomInt(n) { return Math.floor(Math.random() * n); }
 
-// DCロゴ(円のリング + "D" "C" の文字)を幾何学的に近似したマスク。
-// 実画像のピクセルは参照できないため、円・半楕円・リングの組み合わせで形を再現している(簡易近似)
-function insideShapeLocal(lx, ly, strokeX, strokeY, hasFlatLeft, mouth) {
-  // lx, ly はそれぞれの文字のバウンディングボックス内で 0〜1 に正規化した座標
-  if (lx < 0 || lx > 1 || ly < 0 || ly > 1) return false;
-  const outerEllipse = ((lx - 0.5) / 0.5) ** 2 + ((ly - 0.5) / 0.5) ** 2 <= 1;
-  const outer = hasFlatLeft ? (lx <= 0.5 || outerEllipse) : outerEllipse;
-  if (!outer) return false;
+// DCロゴ実画像(1254x1254)を100x100にダウンサンプリングして得た「青/背景」の2値マスク。
+// 各セルに対応する元画像領域の平均色を調べ、青が支配的なら1、それ以外(白・クリーム・背景)なら0にしてある。
+// 10000マス分のビットを1250バイトにパックしてbase64化したもの(ビットは下位から: bit (idx%8) of byte (idx>>3))
+const DC_LOGO_MASK_B64 = "AAAAAAAAAAAAAAAAAAAAAADg/38AAAAAAAAAAADg//9/AAAAAAAAAADA////fwAAAAAAAACA/////x8AAAAAAAAA/v8B8P8HAAAAAAAA+H8AAOD/AQAAAAAA4P8AAADwfwAAAAAAAP8BAAAA+B8AAAAAAPwHAAAAAP4DAAAAAOAfAAAAAIB/AAAAAIB/AAAAAADgHwAAAAD8AQAAAAAA/AMAAADgDwAAAAAAAH8AAAAAfwAAAAAAAOAPAAAA+AEAAAAAAAD8AQAAwA8AAAAAAACAPwAAAH4AAAAAAAAA4AcAAPADAAAAAAAAAPwAAIAfAAAAAAAAAIAfAAD4AAAAAAAAAAD4AQDADwAAAAAAAAAAPwAAfgAAAAAAAAAA4AcA4AMAAAAAAAAAAHwAAP////8BAOD/g/8PAPj///8/AID/f/z/AYD/////DwD8/9//HwD8/////wHg/////wPA/////z+A/////z8A/v////8P/P////8H4P//////4f////9/AP7/////H///////B/D///////H/////+wD//////x//////nw/w/v/////x//////mBz/////8f/////x8f+Pj/AP7/8f8A+P/xgQf/P8D/H/8fgP8PH3zw/wf4//H/B/j/4MMH/3+A/x//f4D/Dz588P8H+P/x/wf4/+DDB/9/gP8f/3+A/w8+PPD/B/j/8f8H+H/AwwP/f4D/H/9/gP8HfDzw/wf4//H/BwAAwMcD/3+A/x//fwAAAHw88P8H+P/x/wcAAMDHA/9/gP8f/38AAAB8PPD/B/j/8f8HAADAxwP/f4D/H/9/AAAAfDzw/wf4//H/BwAAwMcD/3+A/x//fwAAAHw88P8H+P/x/wcAAMDHA/9/gP8f/38AAAB8PPD/B/j/8f8HAADAxwP/f4D/H/9/AAAAPDzw/wf4//H/BwAAwMMH/3+A/x//f4D/Dz588P8H+P/x/wf4/+DDB/9/gP8f/3+A/w8+ePD/B/j/8f8H+P/ggQ//f4D/H/9/gP8PH/jw/wf8//H/B/j/8IEP/3/g/x///4D/Dx/w8f/////x//////gAH/////8f/////48P8PH/////8f////98AD7/////H//////PB+Dz//////H/////fgB8/////x//////7wPA///////g/////z8A+P////8H/P////8BgP////8/AP////8fAPD/////AOD/////AAD/////BwD8////DwDg////PwAA////fwAA/P///wAA4P///wMAwA8AAAAAAAAAgD8AAPgBAAAAAAAAAPgBAAA/AAAAAAAAAMAPAADwBwAAAAAAAAB+AAAA/gAAAAAAAADwAwAAwB8AAAAAAACAHwAAAPgHAAAAAAAA/gAAAAD/AAAAAAAA8AcAAADgHwAAAAAAgD8AAAAA+AcAAAAAAP4BAAAAAP8BAAAAAPgPAAAAAOB/AAAAAOB/AAAAAAD4HwAAAID/AQAAAAAA/w8AAAD/DwAAAAAAwP8HAAD+PwAAAAAAAPD/H4D//wAAAAAAAAD8/////wMAAAAAAAAA/////w8AAAAAAAAAgP///x8AAAAAAAAAAMD//x8AAAAAAAAAAAAA/w8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
-  const ix = 0.5 - strokeX, iy = 0.5 - strokeY;
-  const innerEllipse = ((lx - 0.5) / ix) ** 2 + ((ly - 0.5) / iy) ** 2 <= 1;
-  const inner = hasFlatLeft
-    ? ((lx >= strokeX && lx <= 0.5 && ly >= strokeY && ly <= 1 - strokeY) || (innerEllipse && lx >= 0.5))
-    : innerEllipse;
-  if (inner) return false;
-
-  if (mouth && lx >= mouth.x0 && ly >= mouth.y0 && ly <= mouth.y1) return false;
-  return true;
+function decodeDcLogoMask(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
 }
 
-function isInsideDCLogo(nx, ny) {
-  const dist = Math.sqrt(nx * nx + ny * ny);
-  if (dist > 0.95) return false; // 円の外側は背景
-  if (dist >= 0.81) return true; // 外周のリング部分
+const dcLogoMaskBytes = decodeDcLogoMask(DC_LOGO_MASK_B64);
 
-  // "D"(左側の文字)
-  const dBox = { x0: -0.55, x1: -0.03, y0: -0.42, y1: 0.42 };
-  if (nx >= dBox.x0 && nx <= dBox.x1 && ny >= dBox.y0 && ny <= dBox.y1) {
-    const lx = (nx - dBox.x0) / (dBox.x1 - dBox.x0);
-    const ly = (ny - dBox.y0) / (dBox.y1 - dBox.y0);
-    if (insideShapeLocal(lx, ly, 0.32, 0.22, true, null)) return true;
-  }
-
-  // "C"(右側の文字)
-  const cBox = { x0: 0.03, x1: 0.58, y0: -0.42, y1: 0.42 };
-  if (nx >= cBox.x0 && nx <= cBox.x1 && ny >= cBox.y0 && ny <= cBox.y1) {
-    const lx = (nx - cBox.x0) / (cBox.x1 - cBox.x0);
-    const ly = (ny - cBox.y0) / (cBox.y1 - cBox.y0);
-    if (insideShapeLocal(lx, ly, 0.30, 0.22, false, { x0: 0.58, y0: 0.3, y1: 0.7 })) return true;
-  }
-
-  return false;
+function isInsideDCLogo(i) {
+  return (dcLogoMaskBytes[i >> 3] >> (i & 7)) & 1;
 }
 
-// マスの色を、DCロゴの形に沿って「青系統」か「白/クリーム系統」かを決め、
+// マスの色を、実画像から得たDCロゴの形に沿って「青系統」か「白/クリーム系統」かを決め、
 // その中でセルごとにランダムな色味(地域の色むら)を与える
 function generateCellColors() {
-  const half = (ROWS - 1) / 2;
-  for (let r = 0; r < ROWS; r++) {
-    const ny = (r - half) / half;
-    for (let c = 0; c < COLS; c++) {
-      const nx = (c - half) / half;
-      const isBlue = isInsideDCLogo(nx, ny);
-      cellColor[idx(r, c)] = isBlue ? randomInt(3) : 3 + randomInt(3);
-    }
+  for (let i = 0; i < SIZE; i++) {
+    const isBlue = isInsideDCLogo(i);
+    cellColor[i] = isBlue ? randomInt(3) : 3 + randomInt(3);
   }
 }
 
