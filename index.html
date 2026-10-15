@@ -170,7 +170,13 @@
 <body>
   <h1>DC Gems</h1>
   <div id="hud">
-    <span>一致: <strong id="match-count">0</strong> / 10000</span>
+    <span>一致マス: <strong id="match-count">0</strong></span>
+    <span class="sep">|</span>
+    <span>不一致マス: <strong id="mismatch-count">0</strong></span>
+    <span class="sep">|</span>
+    <span>空マス: <strong id="empty-count">0</strong></span>
+    <span class="sep">|</span>
+    <span>退避場所のgem: <strong id="refuge-gem-count">0</strong></span>
     <span class="sep">|</span>
     <span>手数: <strong id="move-count">0</strong></span>
     <button id="new-board">新しい盤面</button>
@@ -231,6 +237,9 @@ let moveCount = 0;
 const boardEl = document.getElementById("board");
 const refugeEl = document.getElementById("refuge");
 const matchCountEl = document.getElementById("match-count");
+const mismatchCountEl = document.getElementById("mismatch-count");
+const emptyCountEl = document.getElementById("empty-count");
+const refugeGemCountEl = document.getElementById("refuge-gem-count");
 const moveCountEl = document.getElementById("move-count");
 const winBannerEl = document.getElementById("win-banner");
 const winMovesEl = document.getElementById("win-moves");
@@ -565,7 +574,16 @@ refugeEl.addEventListener("click", (e) => {
 });
 
 function updateHud() {
+  let emptyCount = 0;
+  for (let i = 0; i < SIZE; i++) if (gemColor[i] === -1) emptyCount++;
+  let refugeGemCount = 0;
+  for (let i = 0; i < REFUGE_SIZE; i++) if (refugeGem[i] !== null) refugeGemCount++;
+  const mismatchCount = SIZE - matchCount - emptyCount;
+
   matchCountEl.textContent = matchCount;
+  mismatchCountEl.textContent = mismatchCount;
+  emptyCountEl.textContent = emptyCount;
+  refugeGemCountEl.textContent = refugeGemCount;
   moveCountEl.textContent = moveCount;
 }
 
