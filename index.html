@@ -125,6 +125,9 @@
   .cell.reachable {
     box-shadow: inset 0 0 0 2px rgba(80, 230, 160, 0.9);
   }
+  .cell.match-flag {
+    cursor: default; /* 一致済みのgemは選択できないため */
+  }
   .cell.match-flag::after {
     content: "";
     position: absolute;
@@ -744,10 +747,13 @@ function tryMoveTo(area, i) {
 
 function onCellClick(area, i) {
   if (animating) return; // 連鎖アニメーション中はクリックを無視する
-  const hasGem = area === "board" ? gemColor[i] !== -1 : refugeGem[i] !== null;
+  const occupied = area === "board" ? gemColor[i] !== -1 : refugeGem[i] !== null;
+  // 盤面上で既にマスの色と一致しているgemは、誤ってクリアした配置を崩さないよう選択できない
+  const isMatched = area === "board" && gemColor[i] !== -1 && gemColor[i] === cellColor[i];
+  const selectable = occupied && !isMatched;
 
   if (!selected) {
-    if (hasGem) {
+    if (selectable) {
       selected = { area, idx: i };
       updateSelectionHighlight();
     }
@@ -760,12 +766,14 @@ function onCellClick(area, i) {
     return;
   }
 
-  if (hasGem) {
+  if (selectable) {
     // 別のgemをクリック -> 選択し直す
     selected = { area, idx: i };
     updateSelectionHighlight();
     return;
   }
+
+  if (occupied) return; // 一致マスなど、選択できないが空きでもないマスは何もしない
 
   // 空きマスをクリック -> 移動を試みる
   if (area === "refuge" && refugeGem[i] !== null) return; // 念のため
