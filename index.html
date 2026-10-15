@@ -198,9 +198,10 @@
       <h2>遊び方</h2>
       <ul>
         <li>gem(宝石)をクリックして選択し、空いているマスをクリックすると移動できます</li>
-        <li>盤面内の移動は、選択したgemと同じ色のgem、または空きマスが上下左右斜め(8方向)に連続してつながっている範囲にしか行えません。違う色のgemがあるとそこで道が途切れます</li>
+        <li>盤面内の移動は、クリックした空きマスの色が選択したgemの色と一致している場合のみ、距離や経路に関係なくどこへでも直接移動できます</li>
+        <li>さらに、移動元のマスの8方向に同じ色のgemがあり、移動先のマスの8方向に空きマスがあれば、その同じ色のgemも連鎖的に自分の色のマスへ自動で移動します</li>
         <li>退避場所は盤面と切り離されているので、盤面⇔退避場所の移動は条件なしで自由に行えます(退避場所に空きがある場合)</li>
-        <li>全10,000マスのgemの色とマスの色が一致するとクリアです</li>
+        <li>全2,500マスのgemの色とマスの色が一致するとクリアです</li>
         <li>最初は盤面が完全に埋まっているので、退避場所にgemを逃がすところから始めましょう</li>
       </ul>
       <h2>色パレット</h2>
@@ -423,10 +424,10 @@ function updateSelectionHighlight() {
   el.classList.add("selected");
 
   if (selected.area === "board") {
+    // 盤面のgemは、自分の色と一致する盤面上の空きマスへ、距離・経路を問わず移動できる
     const color = gemColor[selected.idx];
-    const reachable = floodFillReachable(selected.idx, color);
     for (let i = 0; i < SIZE; i++) {
-      if (reachable[i] && gemColor[i] === -1) boardCellEls[i].classList.add("reachable");
+      if (gemColor[i] === -1 && cellColor[i] === color) boardCellEls[i].classList.add("reachable");
     }
   } else {
     // 退避枠のgemは連結判定なしで盤面のどの空きマスへも自由に移動できる
@@ -449,33 +450,42 @@ function flashInvalid(area, i) {
   el.classList.add("invalid");
 }
 
-// --- 連結判定(フラッドフィル) ---
+// --- 盤面内の移動ルール ---
+// 盤面内では、gemは「自分の色と一致するマス」であれば、距離や経路を問わず
+// どこへでも直接移動できる(退避場所と同様、連結判定は不要)。
+// さらに、移動元の8方向に同じ色のgemがあり、移動先の8方向に空きマスがあれば、
+// その同じ色のgemも連鎖的に自分の色のマスへ自動で移動する
 
-// 盤面内で、起点(startIdx, 色color)から「同色gem or 空きマス」を8方向にたどれる範囲を返す
-function floodFillReachable(startIdx, color) {
-  const visited = new Uint8Array(SIZE);
-  const stack = [startIdx];
-  visited[startIdx] = 1;
-  const sr = Math.floor(startIdx / COLS), sc0 = startIdx % COLS;
-  while (stack.length > 0) {
-    const cur = stack.pop();
-    const r = Math.floor(cur / COLS), c = cur % COLS;
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        if (dr === 0 && dc === 0) continue;
-        const nr = r + dr, nc = c + dc;
-        if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
-        const ni = idx(nr, nc);
-        if (visited[ni]) continue;
-        const g = gemColor[ni];
-        if (g === -1 || g === color) {
-          visited[ni] = 1;
-          stack.push(ni);
-        }
-      }
+function neighbors8(i) {
+  const r = Math.floor(i / COLS), c = i % COLS;
+  const result = [];
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue;
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+      result.push(idx(nr, nc));
     }
   }
-  return visited;
+  return result;
+}
+
+function hasNeighborColor(i, color) {
+  return neighbors8(i).some((n) => gemColor[n] === color);
+}
+
+function hasEmptyNeighbor(i) {
+  return neighbors8(i).some((n) => gemColor[n] === -1);
+}
+
+// 色colorと一致する空きマスを盤面全体からランダムに1つ探す(無ければ-1)
+function findEmptyMatchingCell(color) {
+  const candidates = [];
+  for (let i = 0; i < SIZE; i++) {
+    if (gemColor[i] === -1 && cellColor[i] === color) candidates.push(i);
+  }
+  if (candidates.length === 0) return -1;
+  return candidates[randomInt(candidates.length)];
 }
 
 // --- 移動処理 ---
@@ -485,41 +495,26 @@ function applyMatchDelta(area, i, delta) {
   if (gemColor[i] !== -1 && gemColor[i] === cellColor[i]) matchCount += delta;
 }
 
-// 手動で移動したgemと同じ色でつながっている(フラッドフィルで到達できる)他のgemのうち、
-// 自分のマス色とまだ一致していないものを、同じ連結範囲内にある「色が一致する空きマス」へ
-// 自動で詰めていく。空きマスが無くなる(またはそのgemが無くなる)まで繰り返す。
-// 退避枠は連結判定を問わず常に受け入れ可能(=どの色でも「同色」とみなす)なので、
-// 盤面側の一致する空きマスを使い切った後は、退避枠に空きがある限りそちらへも詰めていく
-function autoCascadeColor(color, boardAnchorIdx) {
-  const region = floodFillReachable(boardAnchorIdx, color);
-  const sources = [];
-  const boardTargets = [];
-  for (let i = 0; i < SIZE; i++) {
-    if (!region[i]) continue;
-    // 今回手動で移動した本人(anchor)は、自動カスケードの「移動対象」からは除外する。
-    // 除外しないと、一致する空きマスが無い場合に自分自身が即座に退避枠へ送り返されてしまい、
-    // 手動移動が実質的に取り消されたように見える不具合になる
-    if (i === boardAnchorIdx) continue;
-    if (gemColor[i] === color && cellColor[i] !== color) sources.push(i);
-    else if (gemColor[i] === -1 && cellColor[i] === color) boardTargets.push(i);
-  }
-  while (sources.length > 0 && boardTargets.length > 0) {
-    const s = sources.pop();
-    const t = boardTargets.pop();
-    gemColor[s] = -1;
-    paintBoardCell(s);
-    gemColor[t] = color;
-    applyMatchDelta("board", t, 1);
-    paintBoardCell(t);
-  }
-  while (sources.length > 0) {
-    const refugeSlot = refugeGem.indexOf(null);
-    if (refugeSlot === -1) break;
-    const s = sources.pop();
-    gemColor[s] = -1;
-    paintBoardCell(s);
-    refugeGem[refugeSlot] = color;
-    paintRefugeCell(refugeSlot);
+// 盤面内でgemを「自分の色と一致するマス」へ移動する(距離・経路を問わず常に可能)。
+// 移動後、移動元の8方向に同色gemがあり、かつ移動先の8方向に空きマスがあれば、
+// その同色gemも連鎖的に自分の色のマスへ自動移動する(再帰的に連鎖していく)。
+// 再帰呼び出しは1つの兄弟を完全に処理し終えてから次の兄弟へ進むため、
+// findEmptyMatchingColorが同じマスを二重に選んでしまうことはない
+function performBoardMatchMove(fromIdx, toIdx, color) {
+  applyMatchDelta("board", fromIdx, -1);
+  gemColor[fromIdx] = -1;
+  paintBoardCell(fromIdx);
+  gemColor[toIdx] = color;
+  applyMatchDelta("board", toIdx, 1);
+  paintBoardCell(toIdx);
+
+  if (hasNeighborColor(fromIdx, color) && hasEmptyNeighbor(toIdx)) {
+    const chainNeighbors = neighbors8(fromIdx).filter((n) => gemColor[n] === color);
+    for (const n of chainNeighbors) {
+      if (gemColor[n] !== color) continue; // 先に処理済みの兄弟経由で既に動いていたら無視
+      const target = findEmptyMatchingCell(color);
+      if (target !== -1) performBoardMatchMove(n, target, color);
+    }
   }
 }
 
@@ -534,6 +529,21 @@ function sortRefuge() {
   for (let i = 0; i < REFUGE_SIZE; i++) paintRefugeCell(i);
 }
 
+// 1手分の後処理(手数カウント・選択解除・ハイライト更新・退避枠ソート・HUD更新・クリア判定)
+function finishMoveBookkeeping() {
+  moveCount++;
+  selected = null;
+  updateSelectionHighlight();
+  sortRefuge();
+  updateHud();
+
+  if (matchCount === SIZE) {
+    winMovesEl.textContent = `${moveCount}手でクリアしました`;
+    winBannerEl.classList.add("show");
+  }
+}
+
+// 退避場所が絡む移動(盤面⇔退避場所)。連結判定・色の一致いずれも問わず常に自由
 function moveGem(fromArea, fromIdx, toArea, toIdx) {
   const color = fromArea === "board" ? gemColor[fromIdx] : refugeGem[fromIdx];
 
@@ -543,20 +553,7 @@ function moveGem(fromArea, fromIdx, toArea, toIdx) {
   if (toArea === "board") { gemColor[toIdx] = color; paintBoardCell(toIdx); applyMatchDelta("board", toIdx, 1); }
   else { refugeGem[toIdx] = color; paintRefugeCell(toIdx); }
 
-  moveCount++;
-  selected = null;
-  updateSelectionHighlight();
-
-  const boardAnchor = toArea === "board" ? toIdx : (fromArea === "board" ? fromIdx : null);
-  if (boardAnchor !== null) autoCascadeColor(color, boardAnchor);
-
-  sortRefuge();
-  updateHud();
-
-  if (matchCount === SIZE) {
-    winMovesEl.textContent = `${moveCount}手でクリアしました`;
-    winBannerEl.classList.add("show");
-  }
+  finishMoveBookkeeping();
 }
 
 function tryMoveTo(area, i) {
@@ -569,10 +566,11 @@ function tryMoveTo(area, i) {
     return;
   }
 
+  // 盤面内の移動は、移動先のマスが選択したgemと同じ色の場合のみ、距離・経路を問わず常に許可
   const color = gemColor[from.idx];
-  const reachable = floodFillReachable(from.idx, color);
-  if (reachable[i]) {
-    moveGem(from.area, from.idx, area, i);
+  if (cellColor[i] === color) {
+    performBoardMatchMove(from.idx, i, color);
+    finishMoveBookkeeping();
   } else {
     flashInvalid(area, i);
     selected = null;
