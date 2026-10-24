@@ -102,6 +102,69 @@
       transparent 7px
     );
   }
+  .mode-switch { display: inline-flex; gap: 6px; }
+  .mode-btn {
+    background: transparent;
+    border: 1px solid rgba(79, 149, 234, 0.4);
+    color: var(--text);
+    opacity: 0.7;
+  }
+  .mode-btn.active {
+    background: var(--accent);
+    color: #fff;
+    opacity: 1;
+    border-color: var(--accent);
+  }
+  #antbox-wrap {
+    background: var(--panel);
+    border-radius: 12px;
+    padding: 10px 14px;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  #antbox-label { font-size: 0.8rem; opacity: 0.75; }
+  #antbox {
+    display: grid;
+    grid-template-columns: repeat(5, 40px);
+    gap: 3px;
+  }
+  .antbox-cell {
+    width: 40px;
+    height: 28px;
+    border-radius: 4px;
+    background: #24344d;
+    border: 1px dashed rgba(255, 255, 255, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #111;
+    text-shadow: 0 0 3px rgba(255, 255, 255, 0.7);
+    cursor: default;
+  }
+  .antbox-cell.has-box {
+    background: var(--cell-color, #333);
+    border-style: solid;
+    border-color: rgba(255, 255, 255, 0.15);
+    cursor: pointer;
+  }
+  .antbox-cell.antbox-locked {
+    opacity: 0.35;
+    cursor: not-allowed;
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.08),
+      rgba(255, 255, 255, 0.08) 3px,
+      transparent 3px,
+      transparent 7px
+    );
+  }
+  .antbox-cell.invalid {
+    animation: invalidFlash 0.35s ease;
+  }
   .cell {
     position: relative;
     width: var(--cell-size);
@@ -189,15 +252,18 @@
   <div id="hud">
     <span>一致マス: <strong id="match-count">0</strong></span>
     <span class="sep">|</span>
-    <span>不一致マス: <strong id="mismatch-count">0</strong></span>
-    <span class="sep">|</span>
+    <span id="stat-mismatch">不一致マス: <strong id="mismatch-count">0</strong><span class="sep">|</span></span>
     <span>空マス: <strong id="empty-count">0</strong></span>
     <span class="sep">|</span>
-    <span>退避場所のgem: <strong id="refuge-gem-count">0</strong></span>
-    <span class="sep">|</span>
-    <span>退避枠(解放): <strong id="refuge-unlocked-count">0</strong> / <strong id="refuge-max-count">0</strong></span>
-    <span class="sep">|</span>
+    <span id="stat-refuge-gem">退避場所のgem: <strong id="refuge-gem-count">0</strong><span class="sep">|</span></span>
+    <span id="stat-refuge-unlocked">退避枠(解放): <strong id="refuge-unlocked-count">0</strong> / <strong id="refuge-max-count">0</strong><span class="sep">|</span></span>
+    <span id="stat-ants-total" style="display:none;">残り蟻: <strong id="ants-total-count">0</strong><span class="sep">|</span></span>
+    <span id="stat-boxes-remaining" style="display:none;">残り箱: <strong id="boxes-remaining-count">0</strong><span class="sep">|</span></span>
     <span>手数: <strong id="move-count">0</strong></span>
+    <span class="mode-switch">
+      <button id="mode-swap" class="mode-btn active">🔄 交換</button>
+      <button id="mode-ants" class="mode-btn">🐜 蟻</button>
+    </span>
     <button id="new-board">新しい盤面</button>
   </div>
   <div class="layout">
@@ -209,17 +275,34 @@
         <div id="refuge-label">退避場所(盤面とは切り離された領域。自由に出し入れできます)</div>
         <div id="refuge" class="refuge"></div>
       </div>
+      <div id="antbox-wrap">
+        <div id="antbox-label">蟻の箱(手前の列だけが操作できます。空になると箱が消え、後ろの箱が繰り上がります)</div>
+        <div id="antbox"></div>
+      </div>
     </div>
     <aside id="sidebar">
       <h2>遊び方</h2>
-      <ul>
-        <li>gem(宝石)をクリックして選択し、空いているマスをクリックすると移動できます</li>
-        <li>盤面内の移動は、クリックした空きマスの色が選択したgemの色と一致している場合のみ、距離や経路に関係なくどこへでも直接移動できます</li>
-        <li>さらに、移動元のマスの8方向に同じ色のgemがあり、移動先のマスの8方向に空きマスがあれば、その同じ色のgemも連鎖的に自分の色のマスへ自動で移動します</li>
-        <li>退避場所は盤面と切り離されているので、盤面⇔退避場所の移動は条件なしで自由に行えます(退避場所に空きがある場合)</li>
-        <li>全2,500マスのgemの色とマスの色が一致するとクリアです</li>
-        <li>最初は盤面が完全に埋まっているので、退避場所にgemを逃がすところから始めましょう</li>
-      </ul>
+      <div id="howto-swap">
+        <ul>
+          <li>gem(宝石)をクリックして選択し、空いているマスをクリックすると移動できます</li>
+          <li>盤面内の移動は、クリックした空きマスの色が選択したgemの色と一致している場合のみ、距離や経路に関係なくどこへでも直接移動できます</li>
+          <li>さらに、移動元のマスの8方向に同じ色のgemがあり、移動先のマスの8方向に空きマスがあれば、その同じ色のgemも連鎖的に自分の色のマスへ自動で移動します</li>
+          <li>退避場所は盤面と切り離されているので、盤面⇔退避場所の移動は条件なしで自由に行えます(退避場所に空きがある場合)</li>
+          <li>全2,500マスのgemの色とマスの色が一致するとクリアです</li>
+          <li>最初は盤面が完全に埋まっているので、退避場所にgemを逃がすところから始めましょう</li>
+        </ul>
+      </div>
+      <div id="howto-ants" style="display:none;">
+        <ul>
+          <li>最初から全マスにマスと同じ色のgemが置かれています。目標は、すべてのgemを蟻で運び出して盤面を空にすることです</li>
+          <li>下の「蟻の箱」は5列x20段。各列の一番手前(先頭)の箱だけが操作できます</li>
+          <li>先頭の箱をクリックすると、その箱と同じ色の蟻が1匹出てきて、盤面の中で今「一番外側」にあるその色のgemを1個運び出します</li>
+          <li>「一番外側」とは、空いたマス(または盤面の外)を通って外とつながっている、今残っているgemの中で最も外側のものだけを指します。内側のgemは、外側が運び出されるまで取り出せません</li>
+          <li>外側に運べる同色のgemが無い場合、そのクリックは何も起きません(蟻は減りません)</li>
+          <li>箱の中の蟻が0匹になると、その箱は消え、後ろの箱が1つ繰り上がります</li>
+          <li>盤面上の全てのgemを運び出せたらクリアです</li>
+        </ul>
+      </div>
       <h2>色パレット</h2>
       <ul id="palette-legend"></ul>
     </aside>
@@ -279,6 +362,9 @@ let moveCount = 0;
 // 取り残された同色gemのインデックス一覧。移動のたびにリセットされる
 let chainLeftovers = [];
 
+// ゲームモード: "swap"(交換、既存の盤面内移動+退避場所)または "ants"(蟻、箱から蟻を出してgemを運び出す)
+let gameMode = "swap";
+
 const boardEl = document.getElementById("board");
 const refugeEl = document.getElementById("refuge");
 const matchCountEl = document.getElementById("match-count");
@@ -289,8 +375,21 @@ const refugeUnlockedCountEl = document.getElementById("refuge-unlocked-count");
 const refugeMaxCountEl = document.getElementById("refuge-max-count");
 const moveCountEl = document.getElementById("move-count");
 refugeMaxCountEl.textContent = REFUGE_SIZE;
+const antsTotalCountEl = document.getElementById("ants-total-count");
+const boxesRemainingCountEl = document.getElementById("boxes-remaining-count");
 const winBannerEl = document.getElementById("win-banner");
 const winMovesEl = document.getElementById("win-moves");
+
+const modeSwapBtn = document.getElementById("mode-swap");
+const modeAntsBtn = document.getElementById("mode-ants");
+const refugeWrapEl = document.getElementById("refuge-wrap");
+const antboxWrapEl = document.getElementById("antbox-wrap");
+const howtoSwapEl = document.getElementById("howto-swap");
+const howtoAntsEl = document.getElementById("howto-ants");
+
+// モードごとに表示/非表示を切り替えるHUD項目のid一覧
+const SWAP_ONLY_STAT_IDS = ["stat-mismatch", "stat-refuge-gem", "stat-refuge-unlocked"];
+const ANTS_ONLY_STAT_IDS = ["stat-ants-total", "stat-boxes-remaining"];
 
 function idx(r, c) { return r * COLS + c; }
 
@@ -360,7 +459,7 @@ function generateCellColors() {
 // マス色の構成比(colorCounts)をそのままgemの構成比として使うため、全マスのgem色と
 // マス色の多重集合が一致し、理論上「必ず揃えられる」状態になる
 // (色の構成比がズレているとパズルとして解けない状態になり得るため、この性質は重要)
-function generateGems() {
+function generateGemsSwap() {
   const sorted = Array.from(cellColor).sort((a, b) => a - b);
   for (let i = 0; i < SIZE; i++) gemColor[i] = sorted[i];
 
@@ -384,14 +483,123 @@ function generateGems() {
   for (let i = 0; i < REFUGE_SIZE; i++) refugeGem[i] = null;
 }
 
+// 蟻モードでは、最初から全マスのgem色をマス自身の色と一致させる(このモードの
+// ゴールは「色を揃える」ことではなく「すべてのgemを運び出す」ことなので、
+// 開始時点からマス色=gem色で問題ない)
+function generateGemsAnts() {
+  for (let i = 0; i < SIZE; i++) gemColor[i] = cellColor[i];
+}
+
+// --- 蟻モード: 箱(退避場所の代わり)の生成・管理 ---
+const ANT_BOX_COLS = 5;
+const ANT_BOX_ROWS = 20;
+const ANT_BOX_TOTAL = ANT_BOX_COLS * ANT_BOX_ROWS; // 100
+
+let boxColumns = []; // boxColumns[col] = [{ color, count }, ...] (先頭=index 0 が最前列=操作可能な箱)
+
+// 色ごとの合計gem数(=用意する蟻の数)を、最大剰余法でANT_BOX_TOTAL個の箱に比例配分する
+function allocateBoxCountsPerColor(colorTotals) {
+  const exact = colorTotals.map((t) => (t > 0 ? (ANT_BOX_TOTAL * t) / SIZE : 0));
+  const base = exact.map((v, i) => (colorTotals[i] > 0 ? Math.max(1, Math.floor(v)) : 0));
+  let remaining = ANT_BOX_TOTAL - base.reduce((a, b) => a + b, 0);
+
+  const order = base
+    .map((_, i) => i)
+    .filter((i) => colorTotals[i] > 0)
+    .sort((a, b) => (exact[b] - base[b]) - (exact[a] - base[a]));
+
+  let oi = 0;
+  while (remaining > 0 && order.length > 0) {
+    base[order[oi % order.length]]++;
+    remaining--;
+    oi++;
+  }
+  while (remaining < 0) {
+    const shrinkable = base.findIndex((v) => v > 1);
+    if (shrinkable === -1) break;
+    base[shrinkable]--;
+    remaining++;
+  }
+  return base;
+}
+
+// 色の合計数totalを、boxCount個の正の整数チャンクに分割する(できるだけ均等、端数はランダムな箱に配分)
+function splitIntoBoxes(total, boxCount) {
+  const baseSize = Math.floor(total / boxCount);
+  const remainder = total - baseSize * boxCount;
+  const sizes = new Array(boxCount).fill(baseSize);
+  const order = sizes.map((_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    const tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+  }
+  for (let k = 0; k < remainder; k++) sizes[order[k]]++;
+  return sizes;
+}
+
+// 色ごとのgem総数を基に箱を生成し、シャッフルして5列x20行の箱キューに割り振る
+// セルiが盤面の外周から何層目にあるか(0=最外周)を返す。盤面は完全な長方形なので、
+// 外周からの(空きマス経由の)到達順は単純にこの値の小さい順と一致する
+// (computeAntReachableが行うフラッドフィルは、全マスが埋まった状態からこの層を
+// 1層ずつ剥がしていくのと数学的に同じ結果になる)
+function edgeLayerOf(i) {
+  const r = Math.floor(i / COLS), c = i % COLS;
+  return Math.min(r, ROWS - 1 - r, c, COLS - 1 - c);
+}
+
+function generateAntBoxes() {
+  const colorTotals = new Array(COLORS).fill(0);
+  // 色ごとに「盤面の外周から見て何層目から登場し始めるか」の最小値を調べる。
+  // これを使って箱の出現順を外側→内側の露出順に合わせ、まだ露出していない
+  // 内側の色の箱ばかりが先頭に並んで手詰まりになる事態を避ける
+  const minLayerOfColor = new Array(COLORS).fill(Infinity);
+  for (let i = 0; i < SIZE; i++) {
+    const c = cellColor[i];
+    colorTotals[c]++;
+    const layer = edgeLayerOf(i);
+    if (layer < minLayerOfColor[c]) minLayerOfColor[c] = layer;
+  }
+
+  const boxCountsPerColor = allocateBoxCountsPerColor(colorTotals);
+
+  const allBoxes = [];
+  for (let c = 0; c < COLORS; c++) {
+    if (boxCountsPerColor[c] === 0) continue;
+    const sizes = splitIntoBoxes(colorTotals[c], boxCountsPerColor[c]);
+    for (const size of sizes) allBoxes.push({ color: c, count: size });
+  }
+
+  // 同じ色の箱同士はシャッフルしつつ、色の並び自体は「外周に近い色から先」の
+  // 昇順を保つ(安定ソートなので、同色内のシャッフル順はそのまま活きる)
+  for (let i = allBoxes.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    const tmp = allBoxes[i]; allBoxes[i] = allBoxes[j]; allBoxes[j] = tmp;
+  }
+  allBoxes.sort((a, b) => minLayerOfColor[a.color] - minLayerOfColor[b.color]);
+
+  boxColumns = [];
+  for (let c = 0; c < ANT_BOX_COLS; c++) boxColumns.push([]);
+  for (let i = 0; i < allBoxes.length; i++) {
+    boxColumns[i % ANT_BOX_COLS].push(allBoxes[i]);
+  }
+}
+
 function setupNewGame() {
   generateCellColors();
-  generateGems();
   selected = null;
   moveCount = 0;
+  chainLeftovers = [];
+
+  if (gameMode === "swap") {
+    generateGemsSwap();
+  } else {
+    generateGemsAnts();
+    generateAntBoxes();
+  }
+
   matchCount = 0;
   for (let i = 0; i < SIZE; i++) {
-    if (gemColor[i] === cellColor[i]) matchCount++; // 通常は起こらないが念のため
+    if (gemColor[i] === cellColor[i]) matchCount++;
   }
   renderAll();
   updateHud();
@@ -465,8 +673,12 @@ function paintRefugeCell(i) {
 function renderAll() {
   if (!boardCellEls[0]) buildBoardDom();
   for (let i = 0; i < SIZE; i++) paintBoardCell(i);
-  for (let i = 0; i < REFUGE_SIZE; i++) paintRefugeCell(i);
-  updateSelectionHighlight();
+  if (gameMode === "swap") {
+    for (let i = 0; i < REFUGE_SIZE; i++) paintRefugeCell(i);
+    updateSelectionHighlight();
+  } else {
+    renderAntBoxes();
+  }
 }
 
 // gemを選択した時に「どこへ移動できるか」を視覚的に示す(reachableクラス)。
@@ -503,6 +715,136 @@ function flashInvalid(area, i) {
   void el.offsetWidth;
   el.classList.add("invalid");
 }
+
+// --- 蟻モード: 箱の描画・クリック処理 ---
+
+const antboxEl = document.getElementById("antbox");
+const antBoxCellEls = []; // antBoxCellEls[row * ANT_BOX_COLS + col]
+
+function buildAntBoxDom() {
+  antboxEl.innerHTML = "";
+  antBoxCellEls.length = 0;
+  const frag = document.createDocumentFragment();
+  for (let row = 0; row < ANT_BOX_ROWS; row++) {
+    for (let col = 0; col < ANT_BOX_COLS; col++) {
+      const el = document.createElement("div");
+      el.className = "antbox-cell";
+      el.dataset.col = String(col);
+      frag.appendChild(el);
+      antBoxCellEls.push(el);
+    }
+  }
+  antboxEl.appendChild(frag);
+}
+
+// boxColumnsの現在の状態を5x20グリッドに描画する。先頭(row 0)だけが操作可能な見た目にする
+function renderAntBoxes() {
+  if (antBoxCellEls.length === 0) buildAntBoxDom();
+  for (let row = 0; row < ANT_BOX_ROWS; row++) {
+    for (let col = 0; col < ANT_BOX_COLS; col++) {
+      const el = antBoxCellEls[row * ANT_BOX_COLS + col];
+      const box = boxColumns[col] && boxColumns[col][row];
+      if (!box) {
+        el.classList.remove("has-box", "antbox-locked");
+        el.style.removeProperty("--cell-color");
+        el.textContent = "";
+        continue;
+      }
+      el.classList.add("has-box");
+      el.classList.toggle("antbox-locked", row !== 0);
+      el.style.setProperty("--cell-color", PALETTE[box.color].cell);
+      el.textContent = String(box.count);
+    }
+  }
+}
+
+function flashInvalidAntBox(col) {
+  const el = antBoxCellEls[col]; // row 0 の flat index は col と一致する
+  el.classList.remove("invalid");
+  void el.offsetWidth;
+  el.classList.add("invalid");
+}
+
+// 盤面上の空きマス(または盤面の外)を4方向にたどって「外とつながっている」領域を求め、
+// そのすぐ内側にあるgem(=今残っているgemの中で物理的に一番外側のリング)だけを
+// 「今すぐ蟻が運び出せるgem」として返す
+function computeAntReachable() {
+  const reachable = new Uint8Array(SIZE);
+  const visitedEmpty = new Uint8Array(SIZE);
+  const queue = [];
+
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (r !== 0 && r !== ROWS - 1 && c !== 0 && c !== COLS - 1) continue;
+      const i = idx(r, c);
+      if (gemColor[i] === -1) {
+        if (!visitedEmpty[i]) { visitedEmpty[i] = 1; queue.push(i); }
+      } else {
+        reachable[i] = 1;
+      }
+    }
+  }
+
+  const deltas = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+  while (queue.length > 0) {
+    const cur = queue.pop();
+    const r = Math.floor(cur / COLS), c = cur % COLS;
+    for (const [dr, dc] of deltas) {
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+      const ni = idx(nr, nc);
+      if (gemColor[ni] === -1) {
+        if (!visitedEmpty[ni]) { visitedEmpty[ni] = 1; queue.push(ni); }
+      } else {
+        reachable[ni] = 1;
+      }
+    }
+  }
+  return reachable;
+}
+
+// 指定した列の先頭の箱から蟻を1匹出し、今運び出せる同色のgemを1個ランダムに選んで取り除く。
+// 対象が無ければ何も起きない(蟻は減らない)。箱の蟻が0になったら箱自体を列から取り除く
+function handleAntBoxClick(col) {
+  if (animating) return;
+  const box = boxColumns[col] && boxColumns[col][0];
+  if (!box) return;
+
+  const reachable = computeAntReachable();
+  const candidates = [];
+  for (let i = 0; i < SIZE; i++) {
+    if (reachable[i] && gemColor[i] === box.color) candidates.push(i);
+  }
+  if (candidates.length === 0) {
+    flashInvalidAntBox(col);
+    return;
+  }
+
+  const target = candidates[randomInt(candidates.length)];
+  applyMatchDelta("board", target, -1);
+  gemColor[target] = -1;
+  paintBoardCell(target);
+
+  box.count--;
+  if (box.count === 0) boxColumns[col].shift();
+
+  moveCount++;
+  renderAntBoxes();
+  updateHud();
+
+  let remaining = 0;
+  for (let i = 0; i < SIZE; i++) if (gemColor[i] !== -1) remaining++;
+  if (remaining === 0) {
+    winMovesEl.textContent = `${moveCount}手でクリアしました`;
+    winBannerEl.classList.add("show");
+  }
+}
+
+antboxEl.addEventListener("click", (e) => {
+  const cell = e.target.closest(".antbox-cell");
+  if (!cell) return;
+  handleAntBoxClick(Number(cell.dataset.col));
+});
 
 // --- 盤面内の移動ルール ---
 // 盤面内では、gemは「自分の色と一致するマス」であれば、距離や経路を問わず
@@ -791,6 +1133,7 @@ function tryMoveTo(area, i) {
 }
 
 function onCellClick(area, i) {
+  if (gameMode !== "swap") return; // 蟻モードでは盤面・退避枠への直接クリックは無効(箱クリックのみ)
   if (animating) return; // 連鎖アニメーション中はクリックを無視する
   if (area === "refuge" && i >= getUnlockedRefugeCount()) return; // 未解放のスロットは操作不可
   const occupied = area === "board" ? gemColor[i] !== -1 : refugeGem[i] !== null;
@@ -849,16 +1192,28 @@ function updateRefugeLockVisuals() {
 function updateHud() {
   let emptyCount = 0;
   for (let i = 0; i < SIZE; i++) if (gemColor[i] === -1) emptyCount++;
-  let refugeGemCount = 0;
-  for (let i = 0; i < REFUGE_SIZE; i++) if (refugeGem[i] !== null) refugeGemCount++;
-  const mismatchCount = SIZE - matchCount - emptyCount;
 
   matchCountEl.textContent = matchCount;
-  mismatchCountEl.textContent = mismatchCount;
   emptyCountEl.textContent = emptyCount;
-  refugeGemCountEl.textContent = refugeGemCount;
   moveCountEl.textContent = moveCount;
-  updateRefugeLockVisuals();
+
+  if (gameMode === "swap") {
+    let refugeGemCount = 0;
+    for (let i = 0; i < REFUGE_SIZE; i++) if (refugeGem[i] !== null) refugeGemCount++;
+    const mismatchCount = SIZE - matchCount - emptyCount;
+    mismatchCountEl.textContent = mismatchCount;
+    refugeGemCountEl.textContent = refugeGemCount;
+    updateRefugeLockVisuals();
+  } else {
+    let antsTotal = 0;
+    let boxesTotal = 0;
+    for (const col of boxColumns) {
+      boxesTotal += col.length;
+      for (const box of col) antsTotal += box.count;
+    }
+    antsTotalCountEl.textContent = antsTotal;
+    boxesRemainingCountEl.textContent = boxesTotal;
+  }
 }
 
 function renderPaletteLegend() {
@@ -897,8 +1252,26 @@ function renderPaletteLegend() {
 
 document.getElementById("new-board").addEventListener("click", setupNewGame);
 
+// ゲームモードを切り替え、それに応じたHUD項目・遊び方・盤面付帯UI(退避場所/蟻の箱)の
+// 表示を切り替えた上で、新しい盤面を生成する
+function setGameMode(mode) {
+  gameMode = mode;
+  modeSwapBtn.classList.toggle("active", mode === "swap");
+  modeAntsBtn.classList.toggle("active", mode === "ants");
+  refugeWrapEl.style.display = mode === "swap" ? "flex" : "none";
+  antboxWrapEl.style.display = mode === "ants" ? "flex" : "none";
+  howtoSwapEl.style.display = mode === "swap" ? "" : "none";
+  howtoAntsEl.style.display = mode === "ants" ? "" : "none";
+  for (const id of SWAP_ONLY_STAT_IDS) document.getElementById(id).style.display = mode === "swap" ? "" : "none";
+  for (const id of ANTS_ONLY_STAT_IDS) document.getElementById(id).style.display = mode === "ants" ? "" : "none";
+  setupNewGame();
+}
+
+modeSwapBtn.addEventListener("click", () => setGameMode("swap"));
+modeAntsBtn.addEventListener("click", () => setGameMode("ants"));
+
 renderPaletteLegend();
-setupNewGame();
+setGameMode("swap");
 </script>
 </body>
 </html>
