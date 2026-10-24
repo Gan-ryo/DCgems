@@ -533,6 +533,13 @@ const ANT_BOX_ROWS = 20;
 const ANT_BOX_TOTAL = ANT_BOX_COLS * ANT_BOX_ROWS; // 100
 
 let boxColumns = []; // boxColumns[col] = [{ color, count }, ...] (先頭=index 0 が最前列=操作可能な箱)
+// 列ごとに「現在自動運搬中かどうか」を追跡する(swapモードのanimatingとは独立)。
+// これにより、ある列が運搬中でも他の列を同時にクリックして並行して運ばせることができる
+const antColumnBusy = new Array(ANT_BOX_COLS).fill(false);
+// setupNewGame()のたびに増える世代カウンタ。運搬中に「新しい盤面」や
+// モード切り替えで盤面が作り直された場合、古い世代のタイマーが新しい盤面を
+// 誤って書き換えてしまわないようにするためのガードに使う
+let gameGeneration = 0;
 
 // 色ごとの合計gem数(=用意する蟻の数)を、最大剰余法でANT_BOX_TOTAL個の箱に比例配分する
 function allocateBoxCountsPerColor(colorTotals) {
@@ -622,6 +629,8 @@ function generateAntBoxes() {
 }
 
 function setupNewGame() {
+  gameGeneration++; // 進行中の蟻の運搬タイマーが古い盤面を触らないようにする
+  antColumnBusy.fill(false);
   generateCellColors();
   selected = null;
   moveCount = 0;
@@ -857,14 +866,16 @@ const ANT_STEP_GAP_MS = 90;    // 1匹運び終えてから次の蟻が出るま
 // のいずれかになるまで、クリック操作なしで自動的に繰り返す。
 // 1匹ごとに、箱側のパルス演出と、対象gem側の「蟻が運ぶ」演出(🐜アイコン+縮小)を挟む
 function handleAntBoxClick(col) {
-  if (animating) return;
+  if (antColumnBusy[col]) return; // この列は既に運搬中(他の列は並行してクリック可能)
   const box = boxColumns[col] && boxColumns[col][0];
   if (!box) return;
-  animating = true;
+  antColumnBusy[col] = true;
+  const myGeneration = gameGeneration;
   let removedAny = false;
 
   function step() {
-    if (box.count <= 0) { animating = false; return; } // この箱の蟻を使い切った
+    if (myGeneration !== gameGeneration) return; // 盤面が作り直された(busyフラグはリセット済みなので触らない)
+    if (box.count <= 0) { antColumnBusy[col] = false; return; } // この箱の蟻を使い切った
 
     const reachable = computeAntReachable();
     const candidates = [];
@@ -874,11 +885,17 @@ function handleAntBoxClick(col) {
     if (candidates.length === 0) {
       // これ以上運び出せるgemが無い(箱にはまだ蟻が残っている)ので、ここで自動取得を終了する
       if (!removedAny) flashInvalidAntBox(col);
-      animating = false;
+      antColumnBusy[col] = false;
       return;
     }
 
     const target = candidates[randomInt(candidates.length)];
+    // 他の列が同時に同じgemを狙わないよう即座に予約する(CHAIN_RESERVEDは複数の列が
+    // 並行して動く蟻モードでも「他の誰かが処理中」を示すマーカーとして流用できる)。
+    // 蟻モードでは常にgemColor===cellColorが成り立つ前提なので、予約してgemColorを
+    // 書き換える前にmatchCountの減算だけ済ませておく(予約後では判定できなくなるため)
+    applyMatchDelta("board", target, -1);
+    gemColor[target] = CHAIN_RESERVED;
 
     // 演出: 箱から蟻が出て(箱をパルス)、gemを運ぶ(🐜アイコン表示+縮小)
     const boxEl = antBoxCellEls[col]; // row 0 の flat index は col と一致する
@@ -892,8 +909,9 @@ function handleAntBoxClick(col) {
     gemEl.classList.add("ant-carry");
 
     setTimeout(() => {
+      if (myGeneration !== gameGeneration) return; // 待機中に盤面が作り直された
+
       gemEl.classList.remove("ant-carry");
-      applyMatchDelta("board", target, -1);
       gemColor[target] = -1;
       paintBoardCell(target);
 
@@ -910,7 +928,7 @@ function handleAntBoxClick(col) {
       if (remaining === 0) {
         winMovesEl.textContent = `${moveCount}手でクリアしました`;
         winBannerEl.classList.add("show");
-        animating = false;
+        antColumnBusy[col] = false;
         return;
       }
 
