@@ -165,6 +165,40 @@
   .antbox-cell.invalid {
     animation: invalidFlash 0.35s ease;
   }
+  .antbox-cell.ant-dispatch {
+    animation: antDispatchPulse 180ms ease-in-out;
+  }
+  @keyframes antDispatchPulse {
+    0% { transform: scale(1); }
+    40% { transform: scale(1.18); box-shadow: 0 0 8px rgba(255, 255, 255, 0.85); }
+    100% { transform: scale(1); box-shadow: none; }
+  }
+  .cell.ant-carry {
+    animation: antCarryPulse 180ms ease-in-out;
+    z-index: 4;
+  }
+  .cell.ant-carry::before {
+    content: "🐜";
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: calc(var(--cell-size) * 1.3);
+    line-height: 1;
+    animation: antCarryIcon 180ms ease-in-out;
+    pointer-events: none;
+  }
+  @keyframes antCarryPulse {
+    0% { transform: scale(1); opacity: 1; }
+    40% { transform: scale(1.3); filter: brightness(1.6); }
+    100% { transform: scale(0.15); opacity: 0; }
+  }
+  @keyframes antCarryIcon {
+    0% { opacity: 0; transform: scale(0.4); }
+    40% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.15); }
+  }
   .cell {
     position: relative;
     width: var(--cell-size);
@@ -296,7 +330,8 @@
         <ul>
           <li>最初から全マスにマスと同じ色のgemが置かれています。目標は、すべてのgemを蟻で運び出して盤面を空にすることです</li>
           <li>下の「蟻の箱」は5列x20段。各列の一番手前(先頭)の箱だけが操作できます</li>
-          <li>先頭の箱をクリックすると、その箱と同じ色の蟻が1匹出てきて、盤面の中で今「一番外側」にあるその色のgemを1個運び出します</li>
+          <li>先頭の箱をクリックすると、その箱の蟻が次々と出てきて、盤面の中で今「一番外側」にあるその色のgemを1個ずつ自動で運び出し続けます(🐜のアイコンで運んでいる様子が見えます)</li>
+          <li>自動での運び出しは、箱の蟻が尽きるか、これ以上運び出せる同色gemが無くなるまで続きます。途中でクリック操作は不要です</li>
           <li>「一番外側」とは、空いたマス(または盤面の外)を通って外とつながっている、今残っているgemの中で最も外側のものだけを指します。内側のgemは、外側が運び出されるまで取り出せません</li>
           <li>外側に運べる同色のgemが無い場合、そのクリックは何も起きません(蟻は減りません)</li>
           <li>箱の中の蟻が0匹になると、その箱は消え、後ろの箱が1つ繰り上がります</li>
@@ -805,39 +840,76 @@ function computeAntReachable() {
 
 // 指定した列の先頭の箱から蟻を1匹出し、今運び出せる同色のgemを1個ランダムに選んで取り除く。
 // 対象が無ければ何も起きない(蟻は減らない)。箱の蟻が0になったら箱自体を列から取り除く
+const ANT_CARRY_ANIM_MS = 180; // gemを運ぶ演出(ant-carry)の表示時間
+const ANT_STEP_GAP_MS = 90;    // 1匹運び終えてから次の蟻が出るまでの間隔
+
+// 指定した列の先頭の箱から蟻を出し、今運び出せる同色のgemを1個ランダムに選んで取り除く。
+// これを、(a) その箱の蟻が尽きる、または (b) これ以上運び出せる同色gemが無くなる、
+// のいずれかになるまで、クリック操作なしで自動的に繰り返す。
+// 1匹ごとに、箱側のパルス演出と、対象gem側の「蟻が運ぶ」演出(🐜アイコン+縮小)を挟む
 function handleAntBoxClick(col) {
   if (animating) return;
   const box = boxColumns[col] && boxColumns[col][0];
   if (!box) return;
+  animating = true;
+  let removedAny = false;
 
-  const reachable = computeAntReachable();
-  const candidates = [];
-  for (let i = 0; i < SIZE; i++) {
-    if (reachable[i] && gemColor[i] === box.color) candidates.push(i);
+  function step() {
+    if (box.count <= 0) { animating = false; return; } // この箱の蟻を使い切った
+
+    const reachable = computeAntReachable();
+    const candidates = [];
+    for (let i = 0; i < SIZE; i++) {
+      if (reachable[i] && gemColor[i] === box.color) candidates.push(i);
+    }
+    if (candidates.length === 0) {
+      // これ以上運び出せるgemが無い(箱にはまだ蟻が残っている)ので、ここで自動取得を終了する
+      if (!removedAny) flashInvalidAntBox(col);
+      animating = false;
+      return;
+    }
+
+    const target = candidates[randomInt(candidates.length)];
+
+    // 演出: 箱から蟻が出て(箱をパルス)、gemを運ぶ(🐜アイコン表示+縮小)
+    const boxEl = antBoxCellEls[col]; // row 0 の flat index は col と一致する
+    boxEl.classList.remove("ant-dispatch");
+    void boxEl.offsetWidth;
+    boxEl.classList.add("ant-dispatch");
+
+    const gemEl = boardCellEls[target];
+    gemEl.classList.remove("ant-carry");
+    void gemEl.offsetWidth;
+    gemEl.classList.add("ant-carry");
+
+    setTimeout(() => {
+      gemEl.classList.remove("ant-carry");
+      applyMatchDelta("board", target, -1);
+      gemColor[target] = -1;
+      paintBoardCell(target);
+
+      box.count--;
+      if (box.count === 0) boxColumns[col].shift();
+
+      removedAny = true;
+      moveCount++;
+      renderAntBoxes();
+      updateHud();
+
+      let remaining = 0;
+      for (let i = 0; i < SIZE; i++) if (gemColor[i] !== -1) remaining++;
+      if (remaining === 0) {
+        winMovesEl.textContent = `${moveCount}手でクリアしました`;
+        winBannerEl.classList.add("show");
+        animating = false;
+        return;
+      }
+
+      setTimeout(step, ANT_STEP_GAP_MS);
+    }, ANT_CARRY_ANIM_MS);
   }
-  if (candidates.length === 0) {
-    flashInvalidAntBox(col);
-    return;
-  }
 
-  const target = candidates[randomInt(candidates.length)];
-  applyMatchDelta("board", target, -1);
-  gemColor[target] = -1;
-  paintBoardCell(target);
-
-  box.count--;
-  if (box.count === 0) boxColumns[col].shift();
-
-  moveCount++;
-  renderAntBoxes();
-  updateHud();
-
-  let remaining = 0;
-  for (let i = 0; i < SIZE; i++) if (gemColor[i] !== -1) remaining++;
-  if (remaining === 0) {
-    winMovesEl.textContent = `${moveCount}手でクリアしました`;
-    winBannerEl.classList.add("show");
-  }
+  step();
 }
 
 antboxEl.addEventListener("click", (e) => {
