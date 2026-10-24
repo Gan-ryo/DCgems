@@ -205,7 +205,9 @@
     height: var(--cell-size);
     border-radius: 2px;
     cursor: pointer;
-    background: var(--cell-color, #333);
+    /* --cell-colorが未設定(蟻モードで運び出されたマス)の場合は透明にする。
+       退避枠セルは.refuge .cellで個別に背景を上書きしているため影響しない */
+    background: var(--cell-color, transparent);
   }
   .refuge .cell {
     width: 22px;
@@ -677,8 +679,15 @@ function buildBoardDom() {
 
 function paintBoardCell(i) {
   const el = boardCellEls[i];
-  el.style.setProperty("--cell-color", PALETTE[cellColor[i]].cell);
   const g = gemColor[i];
+  // 蟻モードでは、蟻に運び出されて空になったマスはマス自体の色も透明にして
+  // 「運び出された」感を出す。交換モードでは、移動先を示すためマスの色は
+  // 空きマスでも常に表示したままにする
+  if (gameMode === "ants" && g === -1) {
+    el.style.removeProperty("--cell-color");
+  } else {
+    el.style.setProperty("--cell-color", PALETTE[cellColor[i]].cell);
+  }
   if (g === -1) {
     el.classList.remove("has-gem");
     el.style.removeProperty("--gem-color");
